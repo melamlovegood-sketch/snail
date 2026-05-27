@@ -1071,6 +1071,98 @@ textarea.api-input {
 
 .hidden { display: none !important; }
 
+/* ===================== 开屏动画 ===================== */
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  background: #F5EFE6;
+  z-index: 9999;
+  overflow: hidden;
+  cursor: pointer;
+  transition: opacity 0.4s ease-in;
+  -webkit-tap-highlight-color: transparent;
+}
+.splash-screen.splash-fade {
+  opacity: 0;
+  pointer-events: none;
+}
+.splash-content {
+  position: absolute;
+  inset: 0;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+/* 外层：负责弧线爬行轨迹 */
+.splash-snail-path {
+  animation: splash-snail-crawl 1.2s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+  will-change: transform, opacity;
+}
+/* 内层：负责上下摆动模拟爬行感（爬行期间播放 4 次往返） */
+.splash-snail-bob {
+  animation: splash-snail-bob 0.3s ease-in-out 4 alternate;
+}
+.splash-snail-svg {
+  width: 100px;
+  height: 80px;
+  display: block;
+}
+@keyframes splash-snail-crawl {
+  0%   { transform: translate(-55vw, 35vh) rotate(-5deg); opacity: 0; }
+  18%  { opacity: 1; }
+  100% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+}
+@keyframes splash-snail-bob {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-3px); }
+}
+
+/* 文字三段依次淡入 */
+.splash-brand {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', Georgia, serif;
+  font-size: 36px;
+  font-weight: 400;
+  color: #2B2926;
+  margin: 0;
+  line-height: 1;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: splash-fade-up 0.4s ease-out 1.2s forwards;
+}
+.splash-sub {
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  color: #7A766F;
+  letter-spacing: 0.05em;
+  margin: 0;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: splash-fade-up 0.4s ease-out 1.4s forwards;
+}
+.splash-credit {
+  position: absolute;
+  bottom: calc(40px + env(safe-area-inset-bottom));
+  left: 50%;
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 11px;
+  color: #B8B3AB;
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  animation: splash-fade-up-credit 0.4s ease-out 1.6s forwards;
+  letter-spacing: 0.03em;
+}
+@keyframes splash-fade-up {
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes splash-fade-up-credit {
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
 /* ===================== 登录覆盖层 ===================== */
 .auth-overlay {
   position: fixed;
@@ -1173,6 +1265,32 @@ textarea.api-input {
 </style>
 </head>
 <body>
+
+<!-- 开屏动画（DOM 解析完成立即开始，3 阶段共 ~3.2s 后自动移除） -->
+<div id="splash" class="splash-screen">
+  <div class="splash-content">
+    <div class="splash-snail-path">
+      <div class="splash-snail-bob">
+        <svg class="splash-snail-svg" viewBox="0 0 120 100" xmlns="http://www.w3.org/2000/svg">
+          <!-- 身体：左侧括号形曲线（路径由 head 顶左侧弧下到底部，再延伸到 shell 下方）-->
+          <path d="M 32 32 Q 8 32 8 55 Q 8 75 28 75 L 72 75"
+                fill="none" stroke="#6B4C2A" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- 螺旋壳（阿基米德螺旋，路径由 JS 在 setupSplash() 注入）-->
+          <path id="splash-spiral" d=""
+                fill="none" stroke="#6B4C2A" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- 两个触角（实心小圆点）-->
+          <circle cx="14" cy="22" r="2" fill="#6B4C2A"/>
+          <circle cx="25" cy="19" r="2" fill="#6B4C2A"/>
+        </svg>
+      </div>
+    </div>
+    <div class="splash-brand">Snail</div>
+    <div class="splash-sub">Slow down &amp; Get things done.</div>
+  </div>
+  <div class="splash-credit">made by Melam</div>
+</div>
 
 <!-- 登录覆盖层（未登录时显示，登录或选择本地模式后隐藏） -->
 <div id="auth-overlay" class="auth-overlay hidden">
@@ -4957,6 +5075,46 @@ document.getElementById('json-input').addEventListener('change', e => {
 });
 
 /* ---------------- 启动 ---------------- */
+/* ============== 开屏动画 ============== */
+function makeSpiralPath(cx, cy, startR, endR, turns, steps) {
+  // 阿基米德螺旋：r 随 t 线性收缩，theta 顺时针累加（负方向）
+  const totalAngle = turns * 2 * Math.PI;
+  let d = '';
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const angle = -totalAngle * t;             // 顺时针向内
+    const r = startR + (endR - startR) * t;    // 半径线性收缩
+    const x = cx + r * Math.cos(angle);
+    const y = cy + r * Math.sin(angle);
+    d += (i === 0 ? 'M ' : 'L ') + x.toFixed(2) + ' ' + y.toFixed(2) + ' ';
+  }
+  return d.trim();
+}
+function setupSplash() {
+  const splash = document.getElementById('splash');
+  if (!splash) return;
+
+  // 注入螺旋路径（壳中心 (75,50)、外径 20、内径 3、2.5 圈、120 段折线）
+  const pathEl = splash.querySelector('#splash-spiral');
+  if (pathEl) pathEl.setAttribute('d', makeSpiralPath(75, 50, 20, 3, 2.5, 120));
+
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    splash.classList.add('splash-fade');
+    setTimeout(() => splash.remove(), 420);
+  };
+
+  // 点击/触摸任意位置跳过
+  splash.addEventListener('click', dismiss);
+  splash.addEventListener('touchstart', dismiss, { passive: true });
+
+  // 自动结束（2.8s 起淡出，0.4s 淡出动画后移除 DOM）
+  setTimeout(dismiss, 2800);
+}
+setupSplash();
+
 applyTheme();
 dailyTick();
 render();
