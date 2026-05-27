@@ -4524,7 +4524,18 @@ function taskCardHTML(t, opts={}) {
   const threshold = state.rolloverWarnThreshold || 2;
   const isProcrastinated = !isDone && (t.rolloverCount || 0) >= threshold;
 
-  return `
+  // 如果任务可推迟，外层包裹 swipe-wrap，让任意渲染场景（今日页/计划页/专注块）都支持左滑
+  const wrapStart = isDeferEligible(t) ? `
+    <div class="swipe-wrap" data-swipe-task-id="${t.id}">
+      <div class="swipe-actions">
+        <button type="button" class="swipe-action-btn" data-defer-target="tomorrow" onclick="onSwipeActionClick(event, '${t.id}', 'tomorrow')">明天</button>
+        <button type="button" class="swipe-action-btn" data-defer-target="dayAfter" onclick="onSwipeActionClick(event, '${t.id}', 'dayAfter')">后天</button>
+        <button type="button" class="swipe-action-btn" data-defer-target="nextMonday" onclick="onSwipeActionClick(event, '${t.id}', 'nextMonday')">下周一</button>
+      </div>
+  ` : '';
+  const wrapEnd = isDeferEligible(t) ? '</div>' : '';
+
+  return wrapStart + `
     <div class="task-card ${isDone ? 'done' : ''}" data-task-id="${t.id}" data-priority="${t.priority}">
       <button class="pri-edge" onclick="event.stopPropagation(); showPriorityPicker('${t.id}', this)" title="点击修改优先级" aria-label="优先级 ${t.priority}"></button>
       <button class="complete-btn" onclick="event.stopPropagation(); toggleComplete('${t.id}')" title="${isDone ? '取消完成' : '标记完成'}"></button>
@@ -4551,7 +4562,7 @@ function taskCardHTML(t, opts={}) {
         </div>
       </div>
     </div>
-  `;
+  ` + wrapEnd;
 }
 
 /* 模糊时间标签点击：显示区间提示 + 「改为精确时间」入口 */
@@ -5319,13 +5330,11 @@ function renderToday() {
         <span class="date-label">今天 · ${restUnfinished.length} 项待完成</span>
         <span class="text-xs text-faint">${restDone.length} 已完成</span>
       </div>
-      ${sortedUnfinished.map(t => taskCardWithSwipeHTML(t)).join('')}
+      ${sortedUnfinished.map(t => taskCardHTML(t)).join('')}
       ${restDone.map(t => taskCardHTML(t)).join('')}
       ${deferEligibleCount > 0 ? '<button class="day-end-btn" onclick="openBatchDeferPanel()">今天先到这里</button>' : ''}
     </div>
   `;
-
-  attachSwipeHandlers(listEl);
 }
 
 /* ===================== 推迟功能：单个推迟 / 批量推迟 / 承认现实 ===================== */
@@ -5357,22 +5366,6 @@ function deferTargetToDate(target) {
   return null;
 }
 
-/* 用 swipe-wrap 包装可推迟的任务卡 */
-function taskCardWithSwipeHTML(t) {
-  const cardHTML = taskCardHTML(t);
-  if (!isDeferEligible(t)) return cardHTML;
-  return `
-    <div class="swipe-wrap" data-swipe-task-id="${t.id}">
-      <div class="swipe-actions">
-        <button type="button" class="swipe-action-btn" data-defer-target="tomorrow" onclick="onSwipeActionClick(event, '${t.id}', 'tomorrow')">明天</button>
-        <button type="button" class="swipe-action-btn" data-defer-target="dayAfter" onclick="onSwipeActionClick(event, '${t.id}', 'dayAfter')">后天</button>
-        <button type="button" class="swipe-action-btn" data-defer-target="nextMonday" onclick="onSwipeActionClick(event, '${t.id}', 'nextMonday')">下周一</button>
-      </div>
-      ${cardHTML}
-    </div>
-  `;
-}
-
 /* 当前展开的 swipe-wrap，全局唯一 */
 let _activeSwipeWrap = null;
 
@@ -5384,108 +5377,134 @@ function closeActiveSwipe() {
   _activeSwipeWrap = null;
 }
 
-/* 触摸/鼠标拖拽 → 实现卡片左滑 */
-function attachSwipeHandlers(root) {
-  if (!root) return;
-  const wraps = root.querySelectorAll('.swipe-wrap');
-  wraps.forEach(wrap => {
-    const card = wrap.querySelector('.task-card');
-    const actions = wrap.querySelector('.swipe-actions');
-    if (!card || !actions) return;
+/* ===== 左滑手势：文档级事件委托，touch + mouse 都走同一套状态机 =====
+ * 关键设计：
+ *  1) 委托在 document 上 → 今日页 / 计划页 / 专注块的卡片统一生效
+ *  2) 阈值 10px：水平位移超 10px 才锁定为"滑动"，避免轻微移动吞掉点击
+ *  3) touchmove 在锁定为水平后 preventDefault → 阻止页面滚动
+ *  4) 鼠标真实拖动后吞掉紧跟着的 click → 防止误触发卡片详情/按钮
+ */
+const SWIPE_THRESHOLD = 10;
+let _swipe = null;          // { wrap, card, actions, startX, startY, dx, dy, lockedAxis, actionsWidth, cardWidth, baseTx }
+let _swallowNextClick = false;
 
-    let startX = 0, startY = 0, dx = 0;
-    let dragging = false;
-    let lockedAxis = null;
-    let actionsWidth = 0;
-    let cardWidth = 0;
-    let baseTx = 0;
-
-    function onStart(clientX, clientY) {
-      // 先关掉其他打开的
-      if (_activeSwipeWrap && _activeSwipeWrap !== wrap) closeActiveSwipe();
-      startX = clientX;
-      startY = clientY;
-      dx = 0;
-      dragging = true;
-      lockedAxis = null;
-      actionsWidth = actions.getBoundingClientRect().width || 200;
-      cardWidth = card.getBoundingClientRect().width || 300;
-      baseTx = wrap.classList.contains('swipe-open') ? -actionsWidth : 0;
-      wrap.classList.add('swiping');
-    }
-
-    function onMove(clientX, clientY, e) {
-      if (!dragging) return;
-      dx = clientX - startX;
-      const dy = clientY - startY;
-
-      if (lockedAxis == null) {
-        if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
-          lockedAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-        }
-      }
-      if (lockedAxis === 'x') {
-        if (e && e.cancelable) e.preventDefault();
-        let tx = baseTx + dx;
-        // 限制范围：不允许右滑超过 0，左滑不超过 actionsWidth + 20 弹性
-        tx = Math.min(0, Math.max(tx, -actionsWidth - 20));
-        card.style.transform = `translateX(${tx}px)`;
-      } else if (lockedAxis === 'y') {
-        // 垂直滚动放行
-      }
-    }
-
-    function onEnd() {
-      if (!dragging) return;
-      dragging = false;
-      wrap.classList.remove('swiping');
-      if (lockedAxis !== 'x') return;
-      const finalTx = baseTx + dx;
-      const threshold = cardWidth / 3;
-      if (-finalTx > threshold) {
-        card.style.transform = `translateX(${-actionsWidth}px)`;
-        wrap.classList.add('swipe-open');
-        if (_activeSwipeWrap && _activeSwipeWrap !== wrap) closeActiveSwipe();
-        _activeSwipeWrap = wrap;
-      } else {
-        card.style.transform = '';
-        wrap.classList.remove('swipe-open');
-        if (_activeSwipeWrap === wrap) _activeSwipeWrap = null;
-      }
-    }
-
-    card.addEventListener('touchstart', e => {
-      const t = e.touches[0];
-      onStart(t.clientX, t.clientY);
-    }, { passive: true });
-    card.addEventListener('touchmove', e => {
-      const t = e.touches[0];
-      onMove(t.clientX, t.clientY, e);
-    }, { passive: false });
-    card.addEventListener('touchend', onEnd);
-    card.addEventListener('touchcancel', onEnd);
-
-    // 鼠标支持（桌面调试用）
-    card.addEventListener('mousedown', e => {
-      if (e.button !== 0) return;
-      onStart(e.clientX, e.clientY);
-      const mm = ev => onMove(ev.clientX, ev.clientY, ev);
-      const mu = () => {
-        document.removeEventListener('mousemove', mm);
-        document.removeEventListener('mouseup', mu);
-        onEnd();
-      };
-      document.addEventListener('mousemove', mm);
-      document.addEventListener('mouseup', mu);
-    });
-  });
+function _findSwipeWrap(target) {
+  if (!target || !target.closest) return null;
+  // 不接管点在 swipe-actions 按钮上的事件（让按钮自己处理 onclick）
+  if (target.closest('.swipe-actions')) return null;
+  return target.closest('.swipe-wrap');
 }
 
-/* 点击外部关闭已展开的 swipe */
+function _swipeStart(clientX, clientY, wrap) {
+  const card = wrap.querySelector('.task-card');
+  const actions = wrap.querySelector('.swipe-actions');
+  if (!card || !actions) return null;
+  if (_activeSwipeWrap && _activeSwipeWrap !== wrap) closeActiveSwipe();
+  const actionsWidth = actions.getBoundingClientRect().width || 200;
+  const wasOpen = wrap.classList.contains('swipe-open');
+  return {
+    wrap, card, actions,
+    startX: clientX, startY: clientY,
+    dx: 0, dy: 0,
+    lockedAxis: null,
+    actionsWidth,
+    cardWidth: card.getBoundingClientRect().width || 300,
+    baseTx: wasOpen ? -actionsWidth : 0,
+    wasOpen,
+  };
+}
+
+function _swipeMove(clientX, clientY, e) {
+  if (!_swipe) return;
+  _swipe.dx = clientX - _swipe.startX;
+  _swipe.dy = clientY - _swipe.startY;
+  if (_swipe.lockedAxis == null) {
+    if (Math.abs(_swipe.dx) > SWIPE_THRESHOLD || Math.abs(_swipe.dy) > SWIPE_THRESHOLD) {
+      _swipe.lockedAxis = Math.abs(_swipe.dx) > Math.abs(_swipe.dy) ? 'x' : 'y';
+      if (_swipe.lockedAxis === 'x') _swipe.wrap.classList.add('swiping');
+    }
+  }
+  if (_swipe.lockedAxis === 'x') {
+    if (e && e.cancelable) e.preventDefault();
+    let tx = _swipe.baseTx + _swipe.dx;
+    tx = Math.min(0, Math.max(tx, -_swipe.actionsWidth - 20));
+    _swipe.card.style.transform = `translateX(${tx}px)`;
+  }
+}
+
+function _swipeEnd() {
+  if (!_swipe) return;
+  const s = _swipe;
+  s.wrap.classList.remove('swiping');
+  if (s.lockedAxis === 'x') {
+    const finalTx = s.baseTx + s.dx;
+    const openThreshold = s.cardWidth / 3;
+    if (-finalTx > openThreshold) {
+      s.card.style.transform = `translateX(${-s.actionsWidth}px)`;
+      s.wrap.classList.add('swipe-open');
+      _activeSwipeWrap = s.wrap;
+    } else {
+      s.card.style.transform = '';
+      s.wrap.classList.remove('swipe-open');
+      if (_activeSwipeWrap === s.wrap) _activeSwipeWrap = null;
+    }
+    // 锁定过水平 → 真实滑动，吞掉紧随其后的 click（鼠标用得着；触屏 preventDefault 已抑制）
+    _swallowNextClick = true;
+  } else if (s.wasOpen && Math.abs(s.dx) <= SWIPE_THRESHOLD && Math.abs(s.dy) <= SWIPE_THRESHOLD) {
+    // 在已展开的卡片可见区域上轻点 → 收起，吞掉这次 click（避免误开详情）
+    s.card.style.transform = '';
+    s.wrap.classList.remove('swipe-open');
+    if (_activeSwipeWrap === s.wrap) _activeSwipeWrap = null;
+    _swallowNextClick = true;
+  }
+  _swipe = null;
+}
+
+/* Touch */
+document.addEventListener('touchstart', e => {
+  const wrap = _findSwipeWrap(e.target);
+  if (!wrap) return;
+  const t = e.touches[0];
+  _swipe = _swipeStart(t.clientX, t.clientY, wrap);
+}, { passive: true });
+
+document.addEventListener('touchmove', e => {
+  if (!_swipe) return;
+  const t = e.touches[0];
+  _swipeMove(t.clientX, t.clientY, e);
+}, { passive: false });
+
+document.addEventListener('touchend', () => { _swipeEnd(); });
+document.addEventListener('touchcancel', () => { _swipeEnd(); });
+
+/* Mouse（桌面） */
+document.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  const wrap = _findSwipeWrap(e.target);
+  if (!wrap) return;
+  _swipe = _swipeStart(e.clientX, e.clientY, wrap);
+});
+
+document.addEventListener('mousemove', e => {
+  if (!_swipe) return;
+  _swipeMove(e.clientX, e.clientY, e);
+});
+
+document.addEventListener('mouseup', () => {
+  _swipeEnd();
+});
+
+/* 点击：捕获阶段优先 — 如果刚发生过真实滑动则吞掉，否则放行；同时关闭已展开的其他卡片 */
 document.addEventListener('click', e => {
-  if (!_activeSwipeWrap) return;
-  if (_activeSwipeWrap.contains(e.target)) return;
-  closeActiveSwipe();
+  if (_swallowNextClick) {
+    _swallowNextClick = false;
+    e.stopPropagation();
+    e.preventDefault();
+    return;
+  }
+  if (_activeSwipeWrap && !_activeSwipeWrap.contains(e.target)) {
+    closeActiveSwipe();
+  }
 }, true);
 
 /* 点击滑出按钮 */
