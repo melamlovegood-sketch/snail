@@ -1308,7 +1308,7 @@ textarea.api-input {
   </div>
 </div>
 
-<div class="app">
+<div class="app" style="display:none">
 
   <!-- Header -->
   <div class="header">
@@ -1325,7 +1325,7 @@ textarea.api-input {
 </div>
 
 <!-- 底部 Tab（lucide outline 图标 stroke-width 1.5） -->
-<nav class="tabbar">
+<nav class="tabbar" style="display:none">
   <button class="tab active" data-tab="plans" aria-label="全部计划">
     <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span><span>计划</span>
   </button>
@@ -5096,26 +5096,29 @@ function makeSpiralPath(cx, cy, startR, endR, turns, steps) {
 }
 function setupSplash() {
   const splash = document.getElementById('splash');
-  if (!splash) return;
+  const main = document.querySelector('.app');
+  const tabbar = document.querySelector('.tabbar');
+  if (!splash) {
+    // 没有 splash 时直接显示主界面（兜底）
+    if (main) main.style.display = '';
+    if (tabbar) tabbar.style.display = '';
+    return;
+  }
 
   // 注入螺旋路径（壳中心 (75,50)、外径 20、内径 3、2.5 圈、120 段折线）
   const pathEl = splash.querySelector('#splash-spiral');
   if (pathEl) pathEl.setAttribute('d', makeSpiralPath(75, 50, 20, 3, 2.5, 120));
 
-  let dismissed = false;
-  const dismiss = () => {
-    if (dismissed) return;
-    dismissed = true;
-    splash.classList.add('splash-fade');
-    setTimeout(() => splash.remove(), 420);
-  };
-
-  // 点击/触摸任意位置跳过
-  splash.addEventListener('click', dismiss);
-  splash.addEventListener('touchstart', dismiss, { passive: true });
-
-  // 自动结束（2.8s 起淡出，0.4s 淡出动画后移除 DOM）
-  setTimeout(dismiss, 2800);
+  // 固定 2 秒后自动淡出，不依赖任何点击/事件触发
+  setTimeout(() => {
+    splash.style.transition = 'opacity 0.4s ease-out';
+    splash.style.opacity = '0';
+    setTimeout(() => {
+      splash.style.display = 'none';
+      if (main) main.style.display = '';
+      if (tabbar) tabbar.style.display = '';
+    }, 400);
+  }, 2000);
 }
 // 每个启动步骤都独立 try/catch，单点失败不再拖垮整个 app
 try { setupSplash(); } catch(e) { console.error('[Chronos] setupSplash 失败:', e); }
