@@ -1521,7 +1521,7 @@ let focusHintSeen = false; // 是否已展示过首次引导（一次性）
 /* ============== Supabase 云同步 ============== */
 const SUPABASE_URL = 'https://ckwcobbuserktcjrmgly.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNrd2NvYmJ1c2Vya3RjanJtZ2x5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4Nzg5NDMsImV4cCI6MjA5NTQ1NDk0M30.WgN1IPGWX6R8-pA0Mp7kbMb7lRqVbZ3LrdWl6va-Grk';
-let supabase = null;
+let sb = null;  // Supabase client（重命名避免和 SDK 全局 window.supabase 冲突）
 let cloudUser = null;          // { id, email }
 let authStatus = 'unauth';     // 'unauth' | 'guest' | 'cloud'
 let syncStatus = 'idle';       // 'idle' | 'synced' | 'syncing' | 'error' | 'offline'
@@ -1738,10 +1738,10 @@ function focusCardHTML(t) {
  * Supabase 云同步层
  * ============================================================ */
 function initSupabase() {
-  if (supabase) return true;
+  if (sb) return true;
   if (!window.supabase || !window.supabase.createClient) return false;
   try {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
     });
     return true;
@@ -1843,7 +1843,7 @@ function updateSyncIndicator() {
 
 /* ---- 推送：把当前 state 整体 upsert 到云端 ---- */
 async function pushAllToCloud() {
-  if (authStatus !== 'cloud' || !supabase || !cloudUser) return;
+  if (authStatus !== 'cloud' || !sb || !cloudUser) return;
   if (!navigator.onLine) { syncStatus = 'offline'; updateSyncIndicator(); return; }
 
   syncStatus = 'syncing'; updateSyncIndicator();
@@ -1854,7 +1854,7 @@ async function pushAllToCloud() {
       .filter(t => isUuid(t.id))
       .map(taskToRow);
     if (rows.length > 0) {
-      const { error } = await supabase.from('tasks').upsert(rows, { onConflict: 'id' });
+      const { error } = await sb.from('tasks').upsert(rows, { onConflict: 'id' });
       if (error) throw error;
     }
     // 循环模板
@@ -1862,7 +1862,7 @@ async function pushAllToCloud() {
       .filter(tpl => isUuid(tpl.id))
       .map(tplToRow);
     if (tplRows.length > 0) {
-      const { error: e2 } = await supabase.from('recur_templates').upsert(tplRows, { onConflict: 'id' });
+      const { error: e2 } = await sb.from('recur_templates').upsert(tplRows, { onConflict: 'id' });
       if (e2) console.warn('[Cloud] tpl upsert:', e2);
     }
     syncStatus = 'synced';
@@ -1882,17 +1882,17 @@ function scheduleCloudSync() {
 
 /* ---- 拉取：合并云端任务到本地 ---- */
 async function syncFromCloud() {
-  if (authStatus !== 'cloud' || !supabase || !cloudUser) return;
+  if (authStatus !== 'cloud' || !sb || !cloudUser) return;
   syncStatus = 'syncing'; updateSyncIndicator();
   try {
-    const { data: rows, error } = await supabase
+    const { data: rows, error } = await sb
       .from('tasks')
       .select('*')
       .eq('user_id', cloudUser.id)
       .is('deleted_at', null);
     if (error) throw error;
 
-    const { data: tplRows } = await supabase
+    const { data: tplRows } = await sb
       .from('recur_templates')
       .select('*')
       .eq('user_id', cloudUser.id);
@@ -1942,11 +1942,11 @@ function mergeCloudTemplates(rows) {
 
 /* ---- 软删除单个任务到云端 ---- */
 async function cloudSoftDelete(taskId) {
-  if (authStatus !== 'cloud' || !supabase || !cloudUser) return;
+  if (authStatus !== 'cloud' || !sb || !cloudUser) return;
   if (!isUuid(taskId)) return;
   if (!navigator.onLine) { syncStatus = 'offline'; updateSyncIndicator(); return; }
   try {
-    await supabase.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', taskId);
+    await sb.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', taskId);
   } catch(e) {
     console.warn('[Cloud] soft delete failed:', e);
   }
@@ -1954,9 +1954,9 @@ async function cloudSoftDelete(taskId) {
 
 /* ---- Realtime 订阅 ---- */
 async function bootRealtime() {
-  if (!supabase || !cloudUser) return;
+  if (!sb || !cloudUser) return;
   await teardownRealtime();
-  realtimeChannel = supabase
+  realtimeChannel = sb
     .channel('tasks-sync-' + cloudUser.id)
     .on('postgres_changes', {
       event: '*', schema: 'public', table: 'tasks',
@@ -1965,8 +1965,8 @@ async function bootRealtime() {
     .subscribe();
 }
 async function teardownRealtime() {
-  if (realtimeChannel && supabase) {
-    try { await supabase.removeChannel(realtimeChannel); } catch(_) {}
+  if (realtimeChannel && sb) {
+    try { await sb.removeChannel(realtimeChannel); } catch(_) {}
     realtimeChannel = null;
   }
 }
@@ -2006,7 +2006,7 @@ async function bootAuth() {
     return;
   }
   try {
-    const { data } = await supabase.auth.getSession();
+    const { data } = await sb.auth.getSession();
     if (data && data.session && data.session.user) {
       await enterCloudMode(data.session.user);
       return;
@@ -2022,16 +2022,16 @@ async function bootAuth() {
 }
 
 async function loginWithEmail(email, password) {
-  if (!supabase) return { error: 'SDK 未加载' };
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (!sb) return { error: 'SDK 未加载' };
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
   if (error) return { error: error.message };
   if (data && data.user) await enterCloudMode(data.user);
   return { ok: true };
 }
 
 async function registerWithEmail(email, password) {
-  if (!supabase) return { error: 'SDK 未加载' };
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  if (!sb) return { error: 'SDK 未加载' };
+  const { data, error } = await sb.auth.signUp({ email, password });
   if (error) return { error: error.message };
   if (data && data.user) {
     if (data.session) await enterCloudMode(data.user);
@@ -2063,9 +2063,9 @@ function enterGuestMode() {
 }
 
 async function logoutCloud() {
-  if (!supabase) return;
+  if (!sb) return;
   await teardownRealtime();
-  await supabase.auth.signOut();
+  await sb.auth.signOut();
   cloudUser = null;
   authStatus = 'unauth';
   state.cloudUserEmail = '';
@@ -2081,7 +2081,7 @@ async function checkMigration() {
   if (localActive === 0) return;
   // 看云端是否有该用户的任务
   try {
-    const { count } = await supabase
+    const { count } = await sb
       .from('tasks')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', cloudUser.id)
