@@ -4116,9 +4116,16 @@ A) 操作指令格式：
 B) 新任务格式：
 {
   "type": "task",
-  "summary": "已添加 2 个新任务"
+  "desc": "明天下午跑步",
+  "summary": "已添加 1 个新任务"
 }
-（如果是新任务，前端会用本地解析处理）
+（如果是新任务，前端会用 desc 字段做本地解析。）
+
+新任务硬性规则（务必遵守）：
+- 一次输入只生成一个任务对象，desc 是单个任务的简短描述
+- 如果用户内容是一段话/群消息/多行聊天记录，提取其中最核心的一件事作为 desc
+- 不要拆分成多个任务，不要把同一段话里的不同细节当成不同任务
+- desc 控制在 30 字以内，去掉无关寒暄和上下文
 
 注意：
 - taskId 必须是输入列表里真实存在的 id
@@ -4151,13 +4158,16 @@ B) 新任务格式：
       const applied = applyOperations(obj.actions, obj.summary || '已执行操作');
       if (applied === 0) toast('未识别到可执行的操作');
     } else if (obj.type === 'task') {
-      // AI 判定是新任务，fallback 给本地解析
-      const parsed = parseTaskText(userText);
+      // AI 判定是新任务：优先用 AI 提取的 desc（已收敛为单个任务），避免本地分句拆分
+      const sourceText = (typeof obj.desc === 'string' && obj.desc.trim()) ? obj.desc.trim() : userText;
+      const parsed = parseTaskText(sourceText);
       if (parsed.length > 0 && parsed[0].type !== 'recur') {
-        parsed.forEach(p => state.tasks.push(makeTask(p)));
+        // 即便本地再次分句也只取第一个，强制"一次输入只一个任务"
+        const single = parsed[0];
+        state.tasks.push(makeTask(single));
         saveState();
         render();
-        toast(obj.summary || `已添加 ${parsed.length} 个任务`);
+        toast(obj.summary || '已添加任务');
       } else {
         toast(obj.summary || '已添加任务');
       }
@@ -5060,7 +5070,19 @@ ${JSON.stringify(ctx, null, 2)}
 - 用中文回答
 - 涉及具体任务时直接引用任务描述
 - 给出可执行的建议，不要泛泛而谈
-- 控制在 200 字以内，长答案用列表`;
+- 控制在 200 字以内，长答案用列表
+
+【添加任务能力 — 重要】
+如果用户的意图是"加任务/记下来/帮我加一个/提醒我..."等创建任务的请求：
+1) 先在回复正文里用一句话确认你帮他加了什么（例如"好，已加上明天下午的跑步"）
+2) 在回复的最后追加一行特殊标签，前端会解析这行并真正写入任务列表：
+   <ADD_TASK>{"desc":"跑步","date":"YYYY-MM-DD","startTime":"HH:MM 或 null","durPlan":分钟数,"cat":"S/R/G/C","priority":"urgent-important/urgent-unimportant/important/normal"}</ADD_TASK>
+3) 规则：
+   - 一次只能加一个任务，desc 简短（30 字内）
+   - date 用绝对日期（YYYY-MM-DD），今天就是 ${ctx.today}
+   - 不知道的字段：startTime 用 null，durPlan 用 60，cat 用 C，priority 用 normal
+   - 整个 <ADD_TASK>…</ADD_TASK> 必须是合法 JSON，前端会原样解析
+   - 只有在用户明确要"加任务/记下来"时才输出这个标签，单纯聊天/查询不要输出`;
 }
 
 function renderAssistant() {
@@ -5204,6 +5226,34 @@ async function startCheckIn() {
   }
 }
 
+// 从助手回复里抽取 <ADD_TASK>{...}</ADD_TASK> 标签，真正创建任务，并返回去掉标签后的文本
+function handleAssistantAddTaskTags(reply) {
+  const re = /<ADD_TASK>([\s\S]*?)<\/ADD_TASK>/g;
+  let addedCount = 0;
+  let m;
+  while ((m = re.exec(reply)) !== null) {
+    const jsonStr = m[1].trim();
+    try {
+      const obj = JSON.parse(jsonStr);
+      if (!obj || typeof obj.desc !== 'string' || !obj.desc.trim()) continue;
+      const t = makeTask({
+        desc: obj.desc.trim(),
+        date: (typeof obj.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(obj.date)) ? obj.date : todayStr(),
+        startTime: (typeof obj.startTime === 'string' && /^\d{2}:\d{2}$/.test(obj.startTime)) ? obj.startTime : null,
+        durPlan: (typeof obj.durPlan === 'number' && obj.durPlan >= 5) ? obj.durPlan : 60,
+        cat: (typeof obj.cat === 'string' && /^[SRGC]$/.test(obj.cat)) ? obj.cat : 'C',
+        priority: (typeof obj.priority === 'string' && /^(urgent-important|urgent-unimportant|important|normal)$/.test(obj.priority)) ? obj.priority : 'normal'
+      });
+      state.tasks.push(t);
+      addedCount++;
+    } catch(e) {
+      // 单条解析失败不影响其它
+    }
+  }
+  const cleanText = reply.replace(re, '').replace(/\n{3,}/g, '\n\n').trim() || '已加好。';
+  return { cleanText, addedCount };
+}
+
 async function sendChatMessage(text) {
   const apiKey = getApiKey();
   if (!apiKey) {
@@ -5241,8 +5291,15 @@ async function sendChatMessage(text) {
       chatHistory.push({ role: 'assistant', content: `API 调用失败（${resp.status}）。${errTxt ? errTxt.slice(0,200) : ''}` });
     } else {
       const data = await resp.json();
-      const reply = data.choices?.[0]?.message?.content || '（没收到内容）';
-      chatHistory.push({ role: 'assistant', content: reply });
+      const rawReply = data.choices?.[0]?.message?.content || '（没收到内容）';
+      // 解析 <ADD_TASK>{...}</ADD_TASK> 动作标签，真正创建任务
+      const { cleanText, addedCount } = handleAssistantAddTaskTags(rawReply);
+      chatHistory.push({ role: 'assistant', content: cleanText });
+      if (addedCount > 0) {
+        saveState();
+        render();
+        toast(`已加入 ${addedCount} 个任务到计划`);
+      }
     }
   } catch(e) {
     chatHistory.push({ role: 'assistant', content: `出错了：${e.message}` });
