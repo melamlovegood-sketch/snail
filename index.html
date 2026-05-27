@@ -1432,6 +1432,55 @@ textarea.api-input {
  * 设计哲学：克制、简洁、有重量感
  * ===================================================================== */
 
+/* ╔══════════════════════════════════════════════════════════════════╗
+ * ║ SPLASH DISMISS — 必须放在 <script> 第一行，独立 IIFE             ║
+ * ║                                                                  ║
+ * ║ 之前的卡死原因：splash dismiss setTimeout 注册在脚本第 5300+ 行， ║
+ * ║ 如果脚本顶部任何同步代码（如 loadState）抛未捕获错误，主脚本会   ║
+ * ║ 提前中断，setTimeout 永远不被排队，splash 永远不消失。           ║
+ * ║                                                                  ║
+ * ║ 修复策略：把 setTimeout 提前到脚本第一行 IIFE，独立自包含：      ║
+ * ║   - 不依赖任何函数、变量、Promise、事件                         ║
+ * ║   - 不依赖 DOMContentLoaded（脚本在 body 末尾，splash 已经存在） ║
+ * ║   - 即使后面所有代码崩了，splash 也会 2.4s 后消失                ║
+ * ║   - 写法用 var + function() {}，绕开任何 TDZ / closure 问题      ║
+ * ╚══════════════════════════════════════════════════════════════════╝ */
+(function () {
+  setTimeout(function () {
+    var splash = document.getElementById('splash');
+    var main = document.querySelector('.app');
+    var tabbar = document.querySelector('.tabbar');
+    console.log('[Splash] 2s 计时到，准备淡出; splash =', splash, '; main =', main, '; tabbar =', tabbar);
+    if (!splash) {
+      // splash 元素不存在时立刻显示主界面
+      if (main) main.style.display = '';
+      if (tabbar) tabbar.style.display = '';
+      return;
+    }
+    splash.style.transition = 'opacity 0.4s ease-out';
+    splash.style.opacity = '0';
+    setTimeout(function () {
+      splash.style.display = 'none';
+      if (main) { main.style.display = ''; main.style.opacity = '1'; }
+      if (tabbar) tabbar.style.display = '';
+      console.log('[Splash] 已隐藏，主界面已显示');
+    }, 400);
+  }, 2000);
+
+  // 终极兜底：5 秒后不管发生什么，强制把 splash 干掉
+  setTimeout(function () {
+    var splash = document.getElementById('splash');
+    var main = document.querySelector('.app');
+    var tabbar = document.querySelector('.tabbar');
+    if (splash && splash.style.display !== 'none') {
+      console.warn('[Splash] 5s 终极兜底：强制隐藏');
+      splash.style.display = 'none';
+    }
+    if (main && main.style.display === 'none') main.style.display = '';
+    if (tabbar && tabbar.style.display === 'none') tabbar.style.display = '';
+  }, 5000);
+})();
+
 const QWEN_API_KEY = 'YOUR_API_KEY_HERE'; // ← 用户在此填写 通义千问 API Key
 const QWEN_MODEL_VL = 'qwen-vl-plus';   // 图片解析（视觉模型）
 const QWEN_MODEL_TEXT = 'qwen-plus';    // 文字处理（总结分析）
@@ -5297,67 +5346,16 @@ function makeSpiralPath(cx, cy, startR, endR, turns, steps) {
   }
   return d.trim();
 }
-/* ============== 开屏：固定 2 秒自动消失（绝不卡住）==============
- * 设计原则：
- *  - 用 DOMContentLoaded 作触发点，避免依赖任何其它启动代码
- *  - setTimeout 完全独立，不依赖点击、touchstart、SW、Supabase 等任何外部事件
- *  - 元素 null 也兜底显示主界面，绝不出现"白屏卡住"
- *  - console.log 输出每一步，控制台可直接看到执行轨迹
- */
-function __runSplashDismiss() {
-  var splash = document.getElementById('splash');
-  var main = document.querySelector('.app');           // 主界面用 class="app"
-  var tabbar = document.querySelector('.tabbar');
-
-  console.log('[Splash] DOMContentLoaded/ready; splash =', splash, 'main =', main, 'tabbar =', tabbar);
-
-  // 注入螺旋路径（仅视觉，不影响动画逻辑）
-  if (splash) {
-    var pathEl = splash.querySelector('#splash-spiral');
+// ★★★ splash dismiss 已移到 <script> 顶部第一行的 IIFE，独立运行 ★★★
+// 这里仅保留螺旋路径注入（视觉效果，不影响 dismiss 时序）
+(function injectSpiralPath() {
+  try {
+    var pathEl = document.querySelector('#splash-spiral');
     if (pathEl && typeof makeSpiralPath === 'function') {
-      try { pathEl.setAttribute('d', makeSpiralPath(75, 50, 20, 3, 2.5, 120)); } catch(_) {}
+      pathEl.setAttribute('d', makeSpiralPath(75, 50, 20, 3, 2.5, 120));
     }
-  }
-
-  // 兜底：splash 元素不存在时，立即显示主界面，不再等
-  if (!splash) {
-    console.warn('[Splash] splash 元素不存在，直接显示主界面');
-    if (main) main.style.display = '';
-    if (tabbar) tabbar.style.display = '';
-    return;
-  }
-
-  // 固定 2 秒后开始淡出
-  setTimeout(function() {
-    console.log('[Splash] 2s 到期，开始淡出');
-    splash.style.transition = 'opacity 0.4s ease-out';
-    splash.style.opacity = '0';
-    // 0.4s 淡出动画结束后隐藏 splash + 显示主界面
-    setTimeout(function() {
-      splash.style.display = 'none';
-      if (main) { main.style.display = ''; main.style.opacity = '1'; }
-      if (tabbar) tabbar.style.display = '';
-      console.log('[Splash] 已隐藏，主界面已显示');
-    }, 400);
-  }, 2000);
-
-  // 终极兜底：5 秒后如果 splash 仍可见，强制显示主界面（防止任何边缘情况卡住）
-  setTimeout(function() {
-    if (splash && splash.style.display !== 'none') {
-      console.warn('[Splash] 5s 终极兜底：强制隐藏 splash');
-      splash.style.display = 'none';
-      if (main) main.style.display = '';
-      if (tabbar) tabbar.style.display = '';
-    }
-  }, 5000);
-}
-
-// DOMContentLoaded 已过则直接跑；未过则等事件
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', __runSplashDismiss);
-} else {
-  __runSplashDismiss();
-}
+  } catch(_) {}
+})();
 
 console.log('[Chronos] booting…');
 try { applyTheme(); } catch(e) { console.error('[Chronos] applyTheme 失败:', e); }

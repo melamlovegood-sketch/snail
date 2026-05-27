@@ -14,7 +14,7 @@
 //   - 其它静态资源：Network First — 先网络拿最新，失败回退缓存（离线兜底）
 //   - 通义千问 API：完全不走 SW，直通
 // ============================================================
-const CACHE_VERSION = '2026.05.27.143106';  // ← 由 bump-version.js 自动注入
+const CACHE_VERSION = '2026.05.27.144149';  // ← 由 bump-version.js 自动注入
 const CACHE_NAME = `daily-planner-${CACHE_VERSION}`;
 
 self.addEventListener('install', e => {
