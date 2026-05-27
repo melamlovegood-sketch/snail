@@ -328,6 +328,66 @@ h3 { font-size: 17px; font-weight: 600; margin: 0; }
   background: var(--bg-soft);
   color: var(--text-soft);
 }
+.procrastinate-tag {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(245,158,11,0.15);
+  color: var(--pri-urgent-unimportant);
+}
+.decomposed-tag {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  background: rgba(124,58,237,0.12);
+  color: var(--cat-r);
+}
+/* ===== 警告 / 早间规划横幅 ===== */
+.warn-banner {
+  background: rgba(245,158,11,0.10);
+  border: 1px solid rgba(245,158,11,0.30);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.warn-banner .body { flex: 1; min-width: 0; }
+.warn-banner .body .t { font-size: 14px; font-weight: 600; color: var(--text); }
+.warn-banner .body .d { font-size: 12px; color: var(--text-soft); margin-top: 2px; }
+.morning-banner {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  position: relative;
+}
+.morning-banner h3 { margin-bottom: 6px; font-size: 16px; }
+.morning-banner .advice {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  margin: 0 0 12px 0;
+  white-space: pre-wrap;
+}
+.morning-banner .actions { display: flex; gap: 8px; }
+.morning-banner .close-x {
+  position: absolute;
+  top: 10px; right: 10px;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  color: var(--text-faint);
+  background: transparent;
+  border: none;
+}
+.morning-banner .close-x:hover { background: var(--bg-soft); color: var(--text); }
 .recur-tag {
   display: inline-flex;
   padding: 2px 8px;
@@ -953,7 +1013,9 @@ const DEFAULT_STATE = {
   favorites: [],
   lastDate: '',
   theme: 'auto',
-  userApiKey: '' // 用户在设置页填写的覆盖项
+  userApiKey: '',                 // 用户在设置页填写的覆盖项
+  rolloverWarnThreshold: 2,       // 拖延预警阈值 1/2/3
+  lastMorningPlanDate: ''         // 上次显示早间规划助手的日期
 };
 
 let state = loadState();
@@ -964,6 +1026,7 @@ let statView = 'day'; // day | week | month
 let chartInstances = {};
 let chatHistory = []; // [{role:'user'|'assistant', content:'...'}] —— 内存中，不持久化
 let chatLoading = false;
+let morningPlan = null;   // { advice, order, noKey?, loading? } —— 当日内存态
 
 /* ---------------- 工具函数 ---------------- */
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
@@ -1074,16 +1137,23 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 /* ---------------- 跨日处理 + 循环注入 + 截止升级 ---------------- */
 function dailyTick() {
   const today = todayStr();
-  if (state.lastDate && state.lastDate !== today) {
-    // 跨天：未完成标记 rollover，但保留在 tasks（日期不变，依然按原日期归类）
-    state.tasks.forEach(t => {
-      if (t.date < today && t.timerState !== 'done') {
-        t.rollover = true;
-      }
-    });
-    state.done = [];
+  const isCrossDay = state.lastDate && state.lastDate !== today;
+  if (isCrossDay) {
+    state.done = [];                                       // 清空昨日已完成
+    state.tasks.forEach(t => { t.sortOrder = null; });     // AI 早间规划仅当日有效
   }
   state.lastDate = today;
+
+  // 滚入：所有 date < today 且未完成的任务 → 移到今天 + rolloverCount += 1
+  // 即使 dailyTick 同日内重跑，下次 t.date 已是 today，条件不再满足，不会双计数
+  state.tasks.forEach(t => {
+    if (t.date < today && t.timerState !== 'done') {
+      if (!t.originalDate) t.originalDate = t.date;
+      t.rolloverCount = (t.rolloverCount || 0) + 1;
+      t.rollover = true;
+      t.date = today;
+    }
+  });
 
   // 注入循环任务到未来 8 天
   for (let i = 0; i < 8; i++) {
@@ -1142,7 +1212,11 @@ function makeTask(opts) {
     priorityManualOverride: !!opts.priorityManualOverride,
     deadlineUrgencyApplied: false,
     notes: opts.notes || '',
-    favoriteId: opts.favoriteId || null
+    favoriteId: opts.favoriteId || null,
+    rolloverCount: opts.rolloverCount || 0,    // 已被滚入次数（拖延天数）
+    originalDate: opts.originalDate || null,   // 原始创建日期（rollover 前）
+    decomposed: !!opts.decomposed,             // 是否已被 AI 拆解
+    sortOrder: opts.sortOrder ?? null          // AI 早间规划排序（同优先级内排序更高）
   };
 }
 
@@ -1815,6 +1889,10 @@ function toggleComplete(taskId) {
       t.durActual = t.durPlan;
     }
     t.timerState = 'done';
+    // 完成时清零拖延计数和 sortOrder
+    t.rolloverCount = 0;
+    t.rollover = false;
+    t.sortOrder = null;
     // 循环任务：记录完成日志
     if (t.recurId) {
       state.recurDoneLog[`${t.recurId}_${t.date}`] = { actual: t.durActual, ts: Date.now() };
@@ -1931,6 +2009,7 @@ function showTaskDetailModal(taskId) {
     </div>
 
     <div class="modal-actions">
+      <button class="btn-secondary" id="td-decompose" style="margin-right:auto">✦ AI 拆解任务</button>
       <button class="btn-secondary" id="td-cancel">取消</button>
       <button class="btn-primary" id="td-save">保存</button>
     </div>
@@ -1938,6 +2017,11 @@ function showTaskDetailModal(taskId) {
 
   backdrop.appendChild(modal);
   document.body.appendChild(backdrop);
+
+  modal.querySelector('#td-decompose').onclick = () => {
+    backdrop.remove();
+    decomposeTask(t.id);
+  };
 
   // chip 单选
   modal.querySelectorAll('.td-chips').forEach(group => {
@@ -2208,6 +2292,11 @@ function addFromFavorite(favId) {
 const PRI_ORDER = { 'urgent-important': 0, 'urgent-unimportant': 1, 'important': 2, 'normal': 3 };
 function sortTasks(arr) {
   return arr.slice().sort((a, b) => {
+    // AI 早间规划的 sortOrder 优先（双方都有时直接比较；单方有时排前）
+    if (a.sortOrder != null && b.sortOrder != null) return a.sortOrder - b.sortOrder;
+    if (a.sortOrder != null) return -1;
+    if (b.sortOrder != null) return 1;
+
     const pa = PRI_ORDER[a.priority] ?? 9;
     const pb = PRI_ORDER[b.priority] ?? 9;
     if (pa !== pb) return pa - pb;
@@ -2261,8 +2350,11 @@ function taskCardHTML(t, opts={}) {
     ? `<span class="text-xs">${fmtDur(t.durPlan)} → <strong>${fmtDur(t.durActual)}</strong></span>`
     : `<span class="text-xs">${fmtDur(t.durPlan)}</span>`;
 
+  const threshold = state.rolloverWarnThreshold || 2;
+  const isProcrastinated = !isDone && (t.rolloverCount || 0) >= threshold;
+
   return `
-    <div class="task-card ${isDone ? 'done' : ''}">
+    <div class="task-card ${isDone ? 'done' : ''}" data-task-id="${t.id}">
       <button class="complete-btn" onclick="event.stopPropagation(); toggleComplete('${t.id}')" title="${isDone ? '取消完成' : '标记完成'}"></button>
       <span class="pri-dot pri-${t.priority}" onclick="event.stopPropagation(); showPriorityPicker('${t.id}', this)" title="点击修改优先级"></span>
       <div class="task-main" onclick="showTaskDetailModal('${t.id}')" title="点击查看详情">
@@ -2279,7 +2371,8 @@ function taskCardHTML(t, opts={}) {
           <span class="cat-tag" data-cat="${t.cat}" onclick="event.stopPropagation(); showCatPicker('${t.id}', this)">${t.cat}</span>
           ${durLine}
           ${deadlineTag(t.deadline)}
-          ${t.rollover ? '<span class="rollover-tag">滚入</span>' : ''}
+          ${isProcrastinated ? `<span class="procrastinate-tag" title="已被滚入 ${t.rolloverCount} 天">⚠ 已拖延${t.rolloverCount}天</span>` : (t.rollover ? '<span class="rollover-tag">滚入</span>' : '')}
+          ${t.decomposed ? '<span class="decomposed-tag">已拆解</span>' : ''}
           ${t.isRecur ? '<span class="recur-tag">↻ 循环</span>' : ''}
           <div class="timer-area" onclick="event.stopPropagation()">${timerHTML}</div>
         </div>
@@ -2348,9 +2441,285 @@ function computeMaxStreak() {
   return max;
 }
 
+/* ---------------- 拖延预警 banner ---------------- */
+function getProcrastinatedTasks() {
+  const threshold = state.rolloverWarnThreshold || 2;
+  return state.tasks.filter(t => (t.rolloverCount || 0) >= threshold);
+}
+function renderProcrastinationBanner() {
+  const list = getProcrastinatedTasks();
+  if (list.length === 0) return '';
+  return `
+    <div class="warn-banner">
+      <div style="font-size:20px">⚠</div>
+      <div class="body">
+        <div class="t">你有 ${list.length} 个任务被拖延了，要不要拆解一下？</div>
+        <div class="d">点击查看可以跳转到第一个拖延任务</div>
+      </div>
+      <button class="btn-secondary" onclick="scrollToFirstProcrastinated()" style="white-space:nowrap">查看</button>
+    </div>
+  `;
+}
+function scrollToFirstProcrastinated() {
+  const list = getProcrastinatedTasks();
+  if (list.length === 0) return;
+  // 按 date+rolloverCount 找最 "卡" 的那个
+  const target = list.slice().sort((a,b) => (b.rolloverCount||0) - (a.rolloverCount||0))[0];
+  const el = document.querySelector(`[data-task-id="${target.id}"]`);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.style.transition = 'background 0.4s';
+    const old = el.style.background;
+    el.style.background = 'rgba(245,158,11,0.18)';
+    setTimeout(() => { el.style.background = old; }, 1200);
+  }
+}
+
+/* ---------------- 早间规划 banner ---------------- */
+function renderMorningBanner() {
+  if (!morningPlan) return '';
+  if (morningPlan.loading) {
+    return `
+      <div class="morning-banner">
+        <h3>早安，正在为你规划今天…</h3>
+        <p class="advice"><span class="spinner"></span> &nbsp;让 AI 看看你的任务清单</p>
+      </div>
+    `;
+  }
+  if (morningPlan.noKey) {
+    return `
+      <div class="morning-banner">
+        <button class="close-x" onclick="dismissMorningPlan()" title="关闭">✕</button>
+        <h3>早安 🌅</h3>
+        <p class="advice">配置通义千问 API Key 后可使用 AI 规划助手。</p>
+      </div>
+    `;
+  }
+  if (!morningPlan.advice) return '';
+  return `
+    <div class="morning-banner">
+      <button class="close-x" onclick="dismissMorningPlan()" title="关闭">✕</button>
+      <h3>早安，这是今天的计划建议</h3>
+      <p class="advice">${escapeHtml(morningPlan.advice)}</p>
+      <div class="actions">
+        <button class="btn-primary" onclick="acceptMorningPlan()">采纳建议</button>
+        <button class="btn-secondary" onclick="dismissMorningPlan()">我自己安排</button>
+      </div>
+    </div>
+  `;
+}
+
+async function checkMorningPlan() {
+  const today = todayStr();
+  if (state.lastMorningPlanDate === today) return;
+  const todayPending = state.tasks.filter(t => t.date === today && t.timerState !== 'done');
+  if (todayPending.length < 3) return;
+
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    morningPlan = { noKey: true };
+    render();
+    return;
+  }
+
+  morningPlan = { loading: true };
+  render();
+
+  // 历史完成率：最近 7 天
+  const today_d = todayStr();
+  const recent7 = [];
+  for (let i = 1; i <= 7; i++) {
+    const d = dateAdd(today_d, -i);
+    const dayTasks = [...state.tasks, ...state.done].filter(t => t.date === d || t.originalDate === d);
+    const doneCount = dayTasks.filter(t => state.done.some(x => x.id === t.id)).length;
+    recent7.push({ date: d, total: dayTasks.length, done: doneCount });
+  }
+
+  const taskList = todayPending.map(t => ({
+    id: t.id,
+    desc: t.desc,
+    cat: t.cat,
+    priority: t.priority,
+    startTime: t.startTime,
+    durPlan: t.durPlan,
+    deadline: t.deadline,
+    rolloverCount: t.rolloverCount || 0
+  }));
+
+  const sysPrompt = `你是用户的私人日程助手。请根据用户今日任务和历史完成率，给出温和的今日规划建议。
+返回纯 JSON（不要 markdown 包裹）：
+{
+  "advice": "50字以内的建议文字，语气像朋友，不要说教",
+  "order": ["taskId1", "taskId2", ...]  // 推荐执行顺序，必须是输入任务的 id
+}
+order 的排序原则：高优先级 + 有 startTime 的按时间排 + 拖延久的优先动手。`;
+
+  try {
+    const resp = await fetch(QWEN_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: QWEN_MODEL_TEXT,
+        max_tokens: 1024,
+        messages: [
+          { role: 'system', content: sysPrompt },
+          { role: 'user', content: `今日任务：\n${JSON.stringify(taskList, null, 2)}\n\n最近7天完成率：\n${JSON.stringify(recent7)}` }
+        ]
+      })
+    });
+    if (!resp.ok) throw new Error('API ' + resp.status);
+    const data = await resp.json();
+    const txt = data.choices?.[0]?.message?.content || '';
+    const m = txt.match(/\{[\s\S]*\}/);
+    const obj = JSON.parse(m ? m[0] : txt);
+    if (typeof obj.advice !== 'string' || !Array.isArray(obj.order)) throw new Error('AI 返回结构异常');
+    morningPlan = { advice: obj.advice, order: obj.order };
+    render();
+  } catch(e) {
+    console.warn('[Chronos] morning plan fetch failed:', e);
+    morningPlan = null; // 静默失败
+  }
+}
+
+function acceptMorningPlan() {
+  if (!morningPlan || !Array.isArray(morningPlan.order)) return;
+  morningPlan.order.forEach((id, i) => {
+    const t = state.tasks.find(x => x.id === id);
+    if (t) t.sortOrder = i;
+  });
+  state.lastMorningPlanDate = todayStr();
+  morningPlan = null;
+  saveState();
+  render();
+  toast('已按 AI 建议排序');
+}
+
+function dismissMorningPlan() {
+  state.lastMorningPlanDate = todayStr();
+  morningPlan = null;
+  saveState();
+  render();
+}
+
+/* ---------------- AI 任务拆解 ---------------- */
+async function decomposeTask(taskId) {
+  const apiKey = getApiKey();
+  if (!apiKey) { toast('请先在设置中填入 API Key'); return; }
+  const t = findTask(taskId);
+  if (!t) return;
+
+  const loading = showLoading('AI 正在拆解任务');
+  const sysPrompt = `你是一个时间管理助手。请把以下任务拆解成 3-5 个可执行的子任务，每个子任务有明确的描述和预估时长（分钟）。
+要求：
+- 子任务总时长接近原任务总时长
+- 描述简短具体（10 字以内），不要重复原任务大标题
+- 返回纯 JSON 数组，不要 markdown，不要任何其他文字
+格式：
+[{"desc": "子任务描述", "dur": 30, "cat": "${t.cat}"}]`;
+  const userMsg = `任务：${t.desc}
+分类：${t.cat}
+计划总时长：${t.durPlan} 分钟${t.notes ? '\n备注：'+t.notes : ''}`;
+
+  try {
+    const resp = await fetch(QWEN_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: QWEN_MODEL_TEXT,
+        max_tokens: 1024,
+        messages: [
+          { role: 'system', content: sysPrompt },
+          { role: 'user', content: userMsg }
+        ]
+      })
+    });
+    loading.remove();
+    if (!resp.ok) { toast('API 调用失败'); return; }
+    const data = await resp.json();
+    const txt = data.choices?.[0]?.message?.content || '';
+    const m = txt.match(/\[[\s\S]*\]/);
+    if (!m) { toast('AI 返回格式异常'); return; }
+    const subtasks = JSON.parse(m[0]);
+    if (!Array.isArray(subtasks) || subtasks.length === 0) { toast('未拆解到子任务'); return; }
+    showDecomposeConfirmModal(t, subtasks);
+  } catch(e) {
+    loading.remove();
+    toast('拆解失败：' + e.message);
+  }
+}
+
+function showDecomposeConfirmModal(parentTask, subtasks) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.innerHTML = `
+    <h2>拆解结果</h2>
+    <p class="text-soft text-sm" style="margin-bottom:14px">原任务：${escapeHtml(parentTask.desc)} (${fmtDur(parentTask.durPlan)})</p>
+    <div id="dec-list"></div>
+    <div class="form-group" style="margin-top:8px;">
+      <label style="display:flex; align-items:center; gap:10px; cursor:pointer; text-transform:none; letter-spacing:0; font-weight:500;">
+        <input type="checkbox" id="dec-delete-orig" style="width:auto; min-height:auto; margin:0;">
+        <span style="font-size:14px;">添加子任务后删除原任务</span>
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="dec-cancel">取消</button>
+      <button class="btn-primary" id="dec-confirm">添加选中</button>
+    </div>
+  `;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  const list = modal.querySelector('#dec-list');
+  subtasks.forEach((s, i) => {
+    const row = document.createElement('div');
+    row.className = 'modal-list-item';
+    row.innerHTML = `
+      <input type="checkbox" checked data-i="${i}">
+      <input type="text" value="${escapeHtml(s.desc || '')}" data-desc="${i}" style="flex:1; min-width:0">
+      <input type="number" min="5" step="5" value="${s.dur || 30}" style="width:80px" data-dur="${i}">
+      <span class="text-xs text-soft">分</span>
+    `;
+    list.appendChild(row);
+  });
+
+  modal.querySelector('#dec-cancel').onclick = () => backdrop.remove();
+  modal.querySelector('#dec-confirm').onclick = () => {
+    let added = 0;
+    subtasks.forEach((s, i) => {
+      const cb = modal.querySelector(`[data-i="${i}"]`);
+      if (!cb.checked) return;
+      const desc = modal.querySelector(`[data-desc="${i}"]`).value.trim() || s.desc;
+      const dur = parseInt(modal.querySelector(`[data-dur="${i}"]`).value, 10) || 30;
+      state.tasks.push(makeTask({
+        desc, cat: parentTask.cat, priority: parentTask.priority,
+        date: todayStr(), durPlan: dur
+      }));
+      added++;
+    });
+    const delOrig = modal.querySelector('#dec-delete-orig').checked;
+    if (delOrig) {
+      state.tasks = state.tasks.filter(x => x.id !== parentTask.id);
+      state.done = state.done.filter(x => x.id !== parentTask.id);
+    } else {
+      // 标记原任务为"已拆解"
+      const p = findTask(parentTask.id);
+      if (p) p.decomposed = true;
+    }
+    saveState();
+    backdrop.remove();
+    render();
+    toast(`已添加 ${added} 个子任务${delOrig ? '，原任务已删除' : '，原任务标记为已拆解'}`);
+  };
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) backdrop.remove(); });
+}
+
 function renderPlans() {
   const main = document.getElementById('main');
   main.innerHTML = `
+    ${renderMorningBanner()}
+    ${renderProcrastinationBanner()}
     <div class="input-bar">
       <input id="task-input" placeholder="说点什么…例：明天下午写论文2小时" autocomplete="off">
       <button class="btn-icon" id="img-btn" title="截图解析">⎙</button>
@@ -3129,6 +3498,21 @@ function renderSettings() {
       </div>
     </div>
 
+    <div class="section-title">提醒</div>
+    <div class="settings-section">
+      <div class="settings-row">
+        <div>
+          <div class="label">拖延预警阈值</div>
+          <div class="desc">任务滚入超过 N 天时显示橙色警告标签</div>
+        </div>
+        <div class="seg-control">
+          <button data-roll="1" class="${(state.rolloverWarnThreshold||2)===1?'active':''}">1天</button>
+          <button data-roll="2" class="${(state.rolloverWarnThreshold||2)===2?'active':''}">2天</button>
+          <button data-roll="3" class="${(state.rolloverWarnThreshold||2)===3?'active':''}">3天</button>
+        </div>
+      </div>
+    </div>
+
     <div class="section-title">API Key</div>
     <div class="settings-section">
       <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:8px">
@@ -3183,6 +3567,13 @@ function renderSettings() {
       state.theme = b.dataset.th;
       saveState();
       applyTheme();
+      renderSettings();
+    };
+  });
+  main.querySelectorAll('.seg-control button[data-roll]').forEach(b => {
+    b.onclick = () => {
+      state.rolloverWarnThreshold = parseInt(b.dataset.roll, 10) || 2;
+      saveState();
       renderSettings();
     };
   });
@@ -3403,6 +3794,8 @@ applyTheme();
 dailyTick();
 render();
 startTimerTick();
+// 早间规划助手：仅在今日有 ≥3 个待办、且今天还没显示过时触发
+checkMorningPlan();
 
 /* ===================== Service Worker 注册 + 强制更新检测 =====================
  * 每次 push 后用户下次打开 app：
@@ -3476,6 +3869,10 @@ window.aiSummary = aiSummary;
 window.render = render;
 window.showTaskDetailModal = showTaskDetailModal;
 window.showRecurTemplateModal = showRecurTemplateModal;
+window.scrollToFirstProcrastinated = scrollToFirstProcrastinated;
+window.acceptMorningPlan = acceptMorningPlan;
+window.dismissMorningPlan = dismissMorningPlan;
+window.decomposeTask = decomposeTask;
 </script>
 </body>
 </html>
