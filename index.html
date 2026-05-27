@@ -61,6 +61,26 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; padding: 0; }
+
+/* ===================== iOS PWA 输入修复（必须 ≥16px，否则 Safari 会触发自动缩放+焦点失灵）===================== */
+input, textarea, select {
+  font-size: 16px;
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-tap-highlight-color: rgba(0,0,0,0);
+  -webkit-touch-callout: default;
+  touch-action: manipulation;
+  -webkit-appearance: none;
+  appearance: none;
+}
+/* date/time/number 保留 iOS 原生选择器外观 */
+input[type=date], input[type=time], input[type=datetime-local], input[type=month] {
+  -webkit-appearance: none;
+  appearance: none;
+  background-clip: padding-box;
+  min-height: 44px;
+}
+button { touch-action: manipulation; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
   background: var(--bg);
@@ -87,7 +107,7 @@ h3 { font-size: 17px; font-weight: 600; margin: 0; }
 .app {
   max-width: 720px;
   margin: 0 auto;
-  padding: 24px 20px 100px 20px;
+  padding: 24px 20px calc(110px + env(safe-area-inset-bottom)) 20px;
 }
 .header {
   padding: 12px 0 24px 0;
@@ -141,7 +161,7 @@ h3 { font-size: 17px; font-weight: 600; margin: 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 14px 16px;
-  font-size: 15px;
+  font-size: 16px;
   min-height: 48px;
   outline: none;
   transition: border-color 0.15s;
@@ -449,9 +469,9 @@ h3 { font-size: 17px; font-weight: 600; margin: 0; }
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 6px 10px;
-  min-height: 32px;
-  font-size: 13px;
+  padding: 8px 10px;
+  min-height: 40px;
+  font-size: 16px;
 }
 
 /* ===================== 设置页 ===================== */
@@ -522,12 +542,12 @@ h3 { font-size: 17px; font-weight: 600; margin: 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: 16px;
   outline: none;
   color: var(--text);
   font-family: inherit;
   transition: border-color 0.15s;
-  min-height: 40px;
+  min-height: 44px;
 }
 .form-group input:focus, .form-group textarea:focus {
   border-color: var(--accent);
@@ -563,7 +583,7 @@ textarea.api-input {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: 16px;
   font-family: ui-monospace, monospace;
   min-height: 60px;
   resize: vertical;
@@ -778,7 +798,7 @@ textarea.api-input {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px 14px;
-  font-size: 15px;
+  font-size: 16px;
   outline: none;
   font-family: inherit;
   resize: none;
@@ -2632,7 +2652,7 @@ function renderAssistant() {
     </div>
     <div class="chat-scroll" id="chat-scroll"></div>
     <div class="chat-input-bar">
-      <textarea id="chat-input" placeholder="问点什么…例：今天还有什么没完成？" rows="1"></textarea>
+      <textarea id="chat-input" placeholder="问点什么…例：今天还有什么没完成？" rows="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
       <button class="btn-primary" id="chat-send" style="min-height:48px">发送</button>
     </div>
   `;
