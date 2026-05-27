@@ -1262,31 +1262,44 @@ function parseRecur(text) {
 function parseSegments(text) {
   return text.split(/[,，、]|然后|接着|再/).map(s => s.trim()).filter(Boolean);
 }
+/**
+ * 优先级判定规则（彻底重写，2026-05-27）：
+ *   第一步：重要性
+ *     desc 含 论文/作业/报告/考试/答辩/项目/实验/文献/提交/交/due/deadline/ddl → 重要
+ *   第二步：紧急性，满足任一即紧急
+ *     - date 是今天或明天
+ *     - 距离 deadline ≤ 3 天
+ *     - desc 含 今天/明天/马上/立刻/紧急/尽快/截止
+ *   第三步：组合
+ *     重要+紧急→红 / 重要→蓝 / 紧急→橙 / 都不→默认
+ *   第四步：默认 important（蓝）——宁可高估也不低估
+ */
+const IMPORTANT_KW = /论文|作业|报告|考试|答辩|项目|实验|文献|提交|交|due|deadline|ddl/i;
+const URGENT_KW = /今天|明天|马上|立刻|紧急|尽快|截止/;
+
 function inferPriority(desc, deadline, date, startTime) {
   const today = todayStr();
-  // 紧急关键词：提交动作 + 截止表达 + 既有紧急词
-  const URGENT_KW = /提交|上交|交\s*(?:论文|作业|报告|材料|表|方案|项目|实验报告)|[要得需]\s*交|要交|得交|截止|ddl|due|紧急|今晚|今天必须|马上|立刻|急(?!救)/i;
-  // 重要关键词：高分值的事项
-  const IMPORTANT_KW = /论文|作业|报告|考试|答辩|测验|期末|期中|presentation/i;
+  const tomorrow = dateAdd(today, 1);
 
-  let urgent = false, important = false;
-  if (URGENT_KW.test(desc)) urgent = true;
-  if (IMPORTANT_KW.test(desc)) important = true;
+  let important = false, urgent = false;
 
-  // 今天有明确开始时间的任务 → 至少紧急
-  if (date === today && startTime) urgent = true;
+  if (IMPORTANT_KW.test(desc || '')) important = true;
+  if (URGENT_KW.test(desc || '')) urgent = true;
 
-  // deadline 临近升级
+  if (date === today || date === tomorrow) urgent = true;
+
   if (deadline) {
     const d = diffDays(today, deadline);
     if (d <= 3) urgent = true;
+    // deadline 7 天内也视为重要（弱触发，便于早动手）
     if (d <= 7) important = true;
   }
 
   if (urgent && important) return 'urgent-important';
   if (urgent) return 'urgent-unimportant';
   if (important) return 'important';
-  return 'normal';
+  // 第四步：无法判断时默认 important（蓝），而不是 normal
+  return 'important';
 }
 function estimateDuration(desc) {
   // 简单启发
@@ -1470,12 +1483,24 @@ async function handleImageUpload(file) {
 - startTime: "HH:MM" 24小时制 或 null（任务的开始时刻；下午四点半→"16:30"；早上8点→"08:00"；图片里没有具体时间则 null）
 - dur: 数字，分钟（默认60）
 - cat: "S"(学习xxx才算) / "R"(论文/实验/文献/导师/组会) / "G"(游泳/健身/跑步/阅读/冥想) / "C"(其他全部，包括上课/作业/会议/吃饭/通勤)
-- priority: "urgent-important" / "urgent-unimportant" / "important" / "normal"
+- priority: "urgent-important" / "urgent-unimportant" / "important" / "normal"（判定规则见下）
 - deadline: YYYY-MM-DD 或 null
 - reminder: 提前分钟数，默认 30
 - notes: 备注（如需签到签退、地点等）
 
-特别注意：听课、抄作业、刷题、听讲座 全部归 C，不归 S。
+优先级判定规则（请严格遵循）：
+1) 重要：desc 含 论文/作业/报告/考试/答辩/项目/实验/文献/提交/交/due/deadline/ddl → 标记重要
+2) 紧急：满足任一即紧急
+   - date 是今天或明天
+   - 距离 deadline ≤ 3 天
+   - desc 含 今天/明天/马上/立刻/紧急/尽快/截止
+3) 组合：
+   - 重要 + 紧急 → "urgent-important"（红）
+   - 重要 + 不紧急 → "important"（蓝）
+   - 不重要 + 紧急 → "urgent-unimportant"（橙）
+   - 不重要 + 不紧急 → 默认 "important"（蓝），宁可高估也不低估，绝不要给 normal
+
+分类特别注意：听课、抄作业、刷题、听讲座 全部归 C，不归 S。
 只有"学习+具体内容"才归 S。
 
 只输出 JSON 数组，不要任何其他文字、不要 markdown。`;
@@ -1811,8 +1836,25 @@ function showTaskDetailModal(taskId) {
     ['normal','不重要 · 不紧急']
   ];
 
+  // 循环任务额外信息
+  const tpl = t.isRecur && t.recurId ? state.recurTemplates.find(x => x.id === t.recurId) : null;
+  const recurInfoBlock = tpl ? `
+    <div class="form-group" style="background: var(--bg-soft); padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-soft);">
+      <div style="font-size: 12px; color: var(--text-soft); margin-bottom: 6px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;">↻ 循环任务</div>
+      <div style="font-size: 14px;">频率：${fmtRecurDays(tpl.days)}</div>
+      <div style="font-size: 14px; margin-top: 4px;">连续打卡：🔥 ${computeStreak(tpl.id)} 天</div>
+    </div>
+    <div class="form-group">
+      <label style="display:flex; align-items:center; gap:10px; cursor:pointer; text-transform:none; letter-spacing:0; font-weight:500; color:var(--text);">
+        <input type="checkbox" id="td-sync-template" style="width:auto; min-height:auto; margin:0;">
+        <span style="font-size:14px;">同步修改循环模板（影响所有未来未完成实例）</span>
+      </label>
+    </div>
+  ` : '';
+
   modal.innerHTML = `
     <h2>任务详情</h2>
+    ${recurInfoBlock}
 
     <div class="form-group">
       <label>描述</label>
@@ -1908,13 +1950,178 @@ function showTaskDetailModal(taskId) {
       t.priorityManualOverride = true;
     }
 
+    // 循环任务同步到模板及未来未完成实例
+    let syncedCount = 0;
+    const syncBox = modal.querySelector('#td-sync-template');
+    if (syncBox && syncBox.checked && t.isRecur && t.recurId) {
+      const tplRef = state.recurTemplates.find(x => x.id === t.recurId);
+      if (tplRef) {
+        tplRef.desc = t.desc;
+        tplRef.cat = t.cat;
+        tplRef.priority = t.priority;
+        tplRef.durPlan = t.durPlan;
+        tplRef.startTime = t.startTime;
+        tplRef.notes = t.notes;
+        const today = todayStr();
+        state.tasks.forEach(other => {
+          if (other.recurId === tplRef.id && other.id !== t.id && other.date >= today && other.timerState !== 'done') {
+            other.desc = t.desc;
+            other.cat = t.cat;
+            other.priority = t.priority;
+            other.durPlan = t.durPlan;
+            other.startTime = t.startTime;
+            other.notes = t.notes;
+            syncedCount++;
+          }
+        });
+      }
+    }
+
     saveState();
     close();
     render();
-    toast('已保存');
+    toast(syncedCount > 0 ? `已保存，同步 ${syncedCount} 个未来实例` : '已保存');
   };
 
   // 点击模态外部关闭
+  backdrop.addEventListener('click', e => {
+    if (e.target === backdrop) close();
+  });
+}
+
+/* ---------------- 循环模板编辑模态框 ---------------- */
+function showRecurTemplateModal(tplId) {
+  closePopover();
+  const tpl = state.recurTemplates.find(x => x.id === tplId);
+  if (!tpl) return;
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+
+  const catItems = [['S','S 学习'],['R','R 研究'],['G','G 成长'],['C','C 杂事']];
+  const priItems = [
+    ['urgent-important','紧急 · 重要'],
+    ['urgent-unimportant','紧急 · 不重要'],
+    ['important','重要 · 不紧急'],
+    ['normal','不重要 · 不紧急']
+  ];
+  const dayNames = ['日','一','二','三','四','五','六'];
+  const streak = computeStreak(tpl.id);
+
+  modal.innerHTML = `
+    <h2>编辑循环模板</h2>
+
+    <div class="form-group" style="background: var(--bg-soft); padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-soft);">
+      <div style="font-size: 14px;">当前频率：${fmtRecurDays(tpl.days)}</div>
+      <div style="font-size: 14px; margin-top: 4px;">连续打卡：🔥 ${streak} 天</div>
+    </div>
+
+    <div class="form-group">
+      <label>描述</label>
+      <input type="text" id="rt-desc" value="${escapeHtml(tpl.desc)}">
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>计划时长（分钟）</label>
+        <input type="number" id="rt-durPlan" value="${tpl.durPlan}" min="5" step="5">
+      </div>
+      <div class="form-group">
+        <label>开始时间</label>
+        <input type="time" id="rt-startTime" value="${tpl.startTime || ''}">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>分类</label>
+      <div class="td-chips" id="rt-cat">
+        ${catItems.map(([k,l]) => `<button type="button" data-v="${k}" class="${tpl.cat===k?'active':''}">${l}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>优先级</label>
+      <div class="td-chips" id="rt-pri">
+        ${priItems.map(([k,l]) => `<button type="button" data-v="${k}" class="${(tpl.priority||'normal')===k?'active':''}">${l}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>循环日（多选）</label>
+      <div class="td-chips" id="rt-days">
+        ${dayNames.map((n, i) => `<button type="button" data-v="${i}" class="${tpl.days.includes(i)?'active':''}">周${n}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>备注（新实例会继承）</label>
+      <textarea id="rt-notes" rows="3" placeholder="例如：地点、提醒事项">${escapeHtml(tpl.notes || '')}</textarea>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-secondary" id="rt-delete" style="margin-right:auto; color:var(--pri-urgent-important)">删除循环</button>
+      <button class="btn-secondary" id="rt-cancel">取消</button>
+      <button class="btn-primary" id="rt-save">保存并同步</button>
+    </div>
+  `;
+
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  // chip 单选 / days 多选
+  modal.querySelectorAll('.td-chips').forEach(group => {
+    const multi = group.id === 'rt-days';
+    group.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-v]');
+      if (!btn) return;
+      if (multi) btn.classList.toggle('active');
+      else {
+        group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }
+    });
+  });
+
+  const close = () => backdrop.remove();
+  modal.querySelector('#rt-cancel').onclick = close;
+  modal.querySelector('#rt-delete').onclick = () => {
+    close();
+    deleteRecur(tpl.id);
+  };
+
+  modal.querySelector('#rt-save').onclick = () => {
+    const newDesc = modal.querySelector('#rt-desc').value.trim();
+    if (!newDesc) { toast('描述不能为空'); return; }
+    const selectedDays = Array.from(modal.querySelectorAll('#rt-days button.active')).map(b => parseInt(b.dataset.v, 10));
+    if (selectedDays.length === 0) { toast('至少选一个循环日'); return; }
+
+    tpl.desc = newDesc;
+    tpl.durPlan = parseInt(modal.querySelector('#rt-durPlan').value, 10) || 60;
+    tpl.startTime = modal.querySelector('#rt-startTime').value || null;
+    const selCat = modal.querySelector('#rt-cat button.active');
+    if (selCat) tpl.cat = selCat.dataset.v;
+    const selPri = modal.querySelector('#rt-pri button.active');
+    if (selPri) tpl.priority = selPri.dataset.v;
+    tpl.days = selectedDays.sort();
+    tpl.notes = modal.querySelector('#rt-notes').value;
+
+    // 同步：删除未来未完成实例，让 dailyTick 按新模板重新注入
+    const today = todayStr();
+    const beforeCount = state.tasks.length;
+    state.tasks = state.tasks.filter(t =>
+      !(t.recurId === tpl.id && t.date >= today && t.timerState !== 'done')
+    );
+    const removed = beforeCount - state.tasks.length;
+
+    saveState();
+    dailyTick(); // 按新模板重新注入
+    close();
+    render();
+    toast(`模板已更新${removed > 0 ? `，已重排 ${removed} 个未来实例` : ''}`);
+  };
+
   backdrop.addEventListener('click', e => {
     if (e.target === backdrop) close();
   });
@@ -2054,6 +2261,27 @@ function renderHeader() {
   } else {
     extra.innerHTML = '';
   }
+}
+
+function fmtRecurDays(days) {
+  if (!Array.isArray(days) || days.length === 0) return '';
+  if (days.length === 7) return '每天';
+  const names = ['日','一','二','三','四','五','六'];
+  return '每周 ' + days.slice().sort().map(d => names[d]).join('、');
+}
+
+function computeStreak(tplId) {
+  const tpl = state.recurTemplates.find(t => t.id === tplId);
+  if (!tpl || !Array.isArray(tpl.days) || tpl.days.length === 0) return 0;
+  let streak = 0;
+  for (let i = 0; i < 365; i++) {
+    const d = dateAdd(todayStr(), -i);
+    const wd = weekday(d);
+    if (!tpl.days.includes(wd)) continue;
+    if (state.recurDoneLog[`${tpl.id}_${d}`]) streak++;
+    else { if (i === 0) continue; break; }
+  }
+  return streak;
 }
 
 function computeMaxStreak() {
@@ -2313,30 +2541,22 @@ function renderRecur() {
     `;
     return;
   }
-  const dayNames = ['日','一','二','三','四','五','六'];
   main.innerHTML = state.recurTemplates.map(tpl => {
-    // streak
-    let streak = 0;
-    for (let i = 0; i < 365; i++) {
-      const d = dateAdd(todayStr(), -i);
-      const wd = weekday(d);
-      if (!tpl.days.includes(wd)) continue;
-      if (state.recurDoneLog[`${tpl.id}_${d}`]) streak++;
-      else { if (i === 0) continue; break; }
-    }
-    const daysLabel = tpl.days.length === 7 ? '每天' : `每周 ${tpl.days.map(d => dayNames[d]).join('、')}`;
+    const streak = computeStreak(tpl.id);
+    const daysLabel = fmtRecurDays(tpl.days);
     return `
       <div class="recur-card">
         <span class="pri-dot pri-${tpl.priority || 'normal'}" style="width:10px; height:10px; border-radius:50%"></span>
-        <div style="flex:1; min-width:0">
+        <div style="flex:1; min-width:0; cursor:pointer" onclick="showRecurTemplateModal('${tpl.id}')" title="点击编辑循环模板">
           <div style="font-weight:500">${escapeHtml(tpl.desc)}</div>
           <div class="text-xs text-soft" style="margin-top:2px">
+            ${tpl.startTime ? `<span class="time-tag" style="margin-right:4px">◷ ${tpl.startTime}</span>` : ''}
             <span class="cat-tag" data-cat="${tpl.cat}">${tpl.cat}</span>
             &nbsp;${daysLabel} · ${fmtDur(tpl.durPlan)}
           </div>
         </div>
         ${streak > 0 ? `<span class="streak-badge">🔥 ${streak}</span>` : ''}
-        <button class="icon-btn" onclick="deleteRecur('${tpl.id}')" title="删除">✕</button>
+        <button class="icon-btn" onclick="event.stopPropagation(); deleteRecur('${tpl.id}')" title="删除">✕</button>
       </div>
     `;
   }).join('');
@@ -2660,6 +2880,11 @@ ${JSON.stringify(ctx, null, 2)}
 - cat：S=学习 / R=研究 / G=成长（健身阅读等） / C=杂事
 - priority：urgent-important(红) / urgent-unimportant(橙) / important(蓝) / normal(绿)
 - durPlan 计划分钟数，durActual 实际分钟数
+
+优先级判定规则（如果用户问"帮我看优先级"或"调整优先级"，按此规则给建议）：
+1) 重要：desc 含 论文/作业/报告/考试/答辩/项目/实验/文献/提交/交/due/deadline/ddl
+2) 紧急：date 是今天或明天，或 deadline ≤ 3 天，或 desc 含 今天/明天/马上/立刻/紧急/尽快/截止
+3) 组合：重要+紧急→红 / 重要→蓝 / 紧急→橙 / 都不→默认蓝（宁可高估）
 
 回答要求：
 - 语气像了解用户的朋友，简洁直接，不说教不重复问题
@@ -3123,6 +3348,7 @@ window.exportTaskICS = exportTaskICS;
 window.aiSummary = aiSummary;
 window.render = render;
 window.showTaskDetailModal = showTaskDetailModal;
+window.showRecurTemplateModal = showRecurTemplateModal;
 </script>
 </body>
 </html>
