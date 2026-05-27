@@ -566,6 +566,151 @@ h3 {
 }
 .icon-btn.pin-active { color: #9B6B3F; }
 
+/* ===================== 输入模式切换（任务 / 记一笔） ===================== */
+.input-mode-tabs {
+  display: flex;
+  gap: 4px;
+  margin: -16px 0 16px 2px;   /* 紧贴上方 input-bar，向上吸附 */
+}
+.input-mode-tab {
+  background: transparent;
+  border: none;
+  padding: 4px 0;
+  margin-right: 16px;
+  font-size: 12px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  font-family: inherit;
+  position: relative;
+  transition: color 0.2s ease;
+  min-height: 0;
+}
+.input-mode-tab:hover { color: var(--text-soft); }
+.input-mode-tab.active { color: var(--accent); }
+.input-mode-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 1px;
+  background: var(--accent);
+}
+
+/* ===================== 备忘块 ===================== */
+.memo-block {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 24px;
+}
+.memo-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+.memo-title {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+.memo-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.memo-fold {
+  font-size: 11px;
+  color: var(--text-faint);
+  transition: transform 0.25s ease;
+  display: inline-block;
+}
+.memo-block.collapsed .memo-fold { transform: rotate(-90deg); }
+.memo-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.memo-block.collapsed .memo-list { display: none; }
+.memo-empty {
+  margin-top: 10px;
+  padding: 8px 0 2px 0;
+  font-size: 13px;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+}
+.memo-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 4px;
+  border-top: 1px solid var(--border-soft);
+}
+.memo-card:first-child { border-top: none; padding-top: 6px; }
+.memo-card.pinned {
+  background: var(--accent-soft);
+  border-radius: 6px;
+  padding-left: 10px;
+  padding-right: 8px;
+  border-top-color: transparent;
+}
+.memo-card.pinned + .memo-card { border-top-color: transparent; }
+.memo-ts {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  padding-top: 2px;
+  min-width: 52px;
+}
+.memo-pin-mark {
+  color: var(--accent);
+  font-size: 10px;
+  margin-right: 3px;
+}
+.memo-content {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.55;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.memo-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.memo-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  min-height: 0;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.memo-action-btn:hover { color: var(--text); background: var(--bg-soft); }
+.memo-action-btn.pinned { color: var(--accent); }
+
 /* 截图导入：分组多选 */
 .import-group { margin-bottom: 18px; }
 .import-group:last-child { margin-bottom: 0; }
@@ -1693,6 +1838,122 @@ function smartRecommendFocus() {
   saveFocusPins();
   render();
   toast(`已为你挑选 ${focusPins.length} 件最值得专注的事`);
+}
+
+/* ---------------- 快速备忘（snail_memos） ---------------- */
+let inputMode = 'task';        // 'task' | 'memo' —— 主输入框的当前模式
+let memoCollapsed = false;     // 备忘块折叠状态（仅当前会话）
+let memos = loadMemos();
+
+function loadMemos() {
+  let raw;
+  try { raw = localStorage.getItem('snail_memos'); } catch(_) { raw = null; }
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch(_) { return []; }
+}
+function saveMemos() {
+  try { localStorage.setItem('snail_memos', JSON.stringify(memos)); } catch(_) {}
+}
+function addMemo(content) {
+  content = (content || '').trim();
+  if (!content) return;
+  memos.push({
+    id: uid(),
+    content,
+    createdAt: Date.now(),
+    pinned: false,
+    archived: false
+  });
+  saveMemos();
+  memoCollapsed = false;
+  render();
+  toast('已记一笔');
+}
+function togglePinMemo(id) {
+  const m = memos.find(x => x.id === id);
+  if (!m) return;
+  m.pinned = !m.pinned;
+  saveMemos();
+  render();
+}
+function archiveMemo(id) {
+  const m = memos.find(x => x.id === id);
+  if (!m) return;
+  m.archived = true;
+  saveMemos();
+  render();
+  toast('已归档');
+}
+function memoToTask(id) {
+  const m = memos.find(x => x.id === id);
+  if (!m || m.archived) return;
+  // 走原有任务创建流程；handleTextInput 会触发 render
+  // 归档由用户手动决定（转为任务后可能仍想保留笔迹），不在这里自动归档
+  handleTextInput(m.content);
+}
+function toggleMemoCollapsed() {
+  memoCollapsed = !memoCollapsed;
+  render();
+}
+function setInputMode(mode) {
+  if (inputMode === mode) return;
+  inputMode = mode;
+  render();
+  // 切换后聚焦输入框，保持输入手感
+  setTimeout(() => {
+    const el = document.getElementById('task-input');
+    if (el) el.focus();
+  }, 0);
+}
+
+function fmtMemoTs(ts) {
+  const d = new Date(ts);
+  const today = todayStr();
+  const dStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const hm = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  if (dStr === today) return hm;
+  if (dStr === dateAdd(today, -1)) return `昨天 ${hm}`;
+  return `${d.getMonth()+1}月${d.getDate()}日`;
+}
+
+function renderMemoBlock() {
+  const active = memos.filter(m => !m.archived);
+  if (active.length === 0) {
+    // 没有任何活跃备忘时，整块不显示，避免占用视觉空间
+    return '';
+  }
+  const sorted = active.slice().sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    return b.createdAt - a.createdAt;
+  });
+  const collapsedCls = memoCollapsed ? ' collapsed' : '';
+  return `
+    <div class="memo-block${collapsedCls}">
+      <div class="memo-head" onclick="toggleMemoCollapsed()">
+        <h3 class="memo-title">备忘</h3>
+        <div class="memo-head-right">
+          <span>${active.length}</span>
+          <span class="memo-fold">▾</span>
+        </div>
+      </div>
+      <div class="memo-list">
+        ${sorted.map(m => `
+          <div class="memo-card${m.pinned ? ' pinned' : ''}">
+            <div class="memo-ts">${m.pinned ? '<span class="memo-pin-mark">●</span>' : ''}${fmtMemoTs(m.createdAt)}</div>
+            <div class="memo-content">${escapeHtml(m.content)}</div>
+            <div class="memo-actions">
+              <button class="memo-action-btn${m.pinned ? ' pinned' : ''}" onclick="togglePinMemo('${m.id}')" title="${m.pinned ? '取消置顶' : '置顶'}">${m.pinned ? '★' : '☆'}</button>
+              <button class="memo-action-btn" onclick="memoToTask('${m.id}')" title="转为任务">→ 任务</button>
+              <button class="memo-action-btn" onclick="archiveMemo('${m.id}')" title="归档">归档</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
 }
 
 function renderFocusBlock() {
@@ -4127,22 +4388,35 @@ function renderPlans() {
     ${renderMorningBanner()}
     ${renderProcrastinationBanner()}
     <div class="input-bar">
-      <input id="task-input" placeholder="新任务或操作指令，例：把今天 C 类推到明天" autocomplete="off">
-      <button class="btn-icon" id="img-btn" title="截图解析">⎙</button>
-      <button class="btn-icon" id="fav-btn" title="收藏">★</button>
+      <input id="task-input" placeholder="${inputMode === 'memo' ? '记一笔...（按 Enter 保存）' : '新任务或操作指令，例：把今天 C 类推到明天'}" autocomplete="off">
+      ${inputMode === 'task' ? `
+        <button class="btn-icon" id="img-btn" title="截图解析">⎙</button>
+        <button class="btn-icon" id="fav-btn" title="收藏">★</button>
+      ` : ''}
     </div>
+    <div class="input-mode-tabs">
+      <button class="input-mode-tab${inputMode === 'task' ? ' active' : ''}" onclick="setInputMode('task')">任务</button>
+      <button class="input-mode-tab${inputMode === 'memo' ? ' active' : ''}" onclick="setInputMode('memo')">记一笔</button>
+    </div>
+    ${renderMemoBlock()}
     <div id="plans-list"></div>
   `;
 
   const input = main.querySelector('#task-input');
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter') {
-      handleTextInput(input.value);
+      if (inputMode === 'memo') {
+        addMemo(input.value);
+      } else {
+        handleTextInput(input.value);
+      }
       input.value = '';
     }
   });
-  main.querySelector('#img-btn').onclick = () => document.getElementById('img-input').click();
-  main.querySelector('#fav-btn').onclick = showFavoritesQuickPick;
+  if (inputMode === 'task') {
+    main.querySelector('#img-btn').onclick = () => document.getElementById('img-input').click();
+    main.querySelector('#fav-btn').onclick = showFavoritesQuickPick;
+  }
 
   // 按日期分组
   const allTasks = [...state.tasks, ...state.done];
@@ -5522,6 +5796,11 @@ window.showAuthOverlay = showAuthOverlay;
 window.smartRecommendFocus = smartRecommendFocus;
 window.removeFromFocus = removeFromFocus;
 window.togglePin = togglePin;
+window.setInputMode = setInputMode;
+window.togglePinMemo = togglePinMemo;
+window.archiveMemo = archiveMemo;
+window.memoToTask = memoToTask;
+window.toggleMemoCollapsed = toggleMemoCollapsed;
 </script>
 </body>
 </html>
