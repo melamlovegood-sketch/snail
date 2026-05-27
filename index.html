@@ -418,6 +418,49 @@ h3 {
   border: none;
   letter-spacing: 0.02em;
 }
+.time-label-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: rgba(155,107,63,0.08);
+  color: #9B6B3F;
+  border: none;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+.time-label-pop {
+  position: absolute;
+  z-index: 9999;
+  background: #fff;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.08);
+  padding: 10px 12px;
+  min-width: 200px;
+  font-size: 12px;
+  color: #7A766F;
+}
+.time-label-pop .tlp-range { color: #7A766F; font-size: 12px; margin-bottom: 8px; }
+.time-label-pop .tlp-row { display: flex; gap: 6px; align-items: center; }
+.time-label-pop input[type="time"] {
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  font-size: 12px;
+  min-height: 0;
+}
+.time-label-pop button {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: none;
+  background: #9B6B3F;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
 .deadline-tag {
   display: inline-flex;
   align-items: center;
@@ -2481,6 +2524,9 @@ function makeTask(opts) {
     priority: opts.priority || 'normal',
     date: opts.date || todayStr(),
     startTime: opts.startTime || null,  // HH:MM 或 null
+    timeLabel: opts.timeLabel || null,  // 模糊时间标签，如 "下午"，null 表示精确时间或无时间
+    endTime: opts.endTime || null,      // 模糊时间区间结束，如 "18:00"
+    createdAt: opts.createdAt || Date.now(),
     deadline: opts.deadline || null,
     durPlan: opts.durPlan || 60,
     durActual: opts.durActual ?? null,
@@ -2518,7 +2564,20 @@ function cnToNum(s) {
   return null;
 }
 
-/* 解析开始时间，返回 { time: "HH:MM", matched: "原文匹配串" } 或 null */
+/* 模糊时间词映射（功能一） */
+const FUZZY_TIME_MAP = {
+  '早上': { startTime: '07:00', endTime: '09:00' },
+  '早晨': { startTime: '07:00', endTime: '09:00' },
+  '上午': { startTime: '09:00', endTime: '12:00' },
+  '中午': { startTime: '11:30', endTime: '13:30' },
+  '下午': { startTime: '14:00', endTime: '18:00' },
+  '傍晚': { startTime: '17:00', endTime: '19:00' },
+  '晚上': { startTime: '19:00', endTime: '22:00' },
+  '睡前': { startTime: '22:00', endTime: '23:59' }
+};
+const FUZZY_TIME_RE = /(早晨|早上|上午|中午|下午|傍晚|晚上|睡前)/;
+
+/* 解析开始时间，返回 { time: "HH:MM", matched: "原文匹配串", timeLabel?, endTime? } 或 null */
 function parseStartTime(text) {
   // 1) 数字格式 HH:MM（可带时段前缀，用于 12 小时表达）
   let m = text.match(/(凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|夜晚|深夜)?\s*(\d{1,2})\s*[:：]\s*(\d{1,2})/);
@@ -2544,7 +2603,19 @@ function parseStartTime(text) {
     if (h < 0 || h > 23) return null;
     return { time: pad2(h) + ':' + pad2(min), matched: m[0] };
   }
-  // 3) 单独时段词（无具体小时）— 不返回时间，保守跳过
+  // 3) 模糊时段词（无具体小时）— 映射到固定区间，并带 timeLabel
+  m = text.match(FUZZY_TIME_RE);
+  if (m) {
+    const info = FUZZY_TIME_MAP[m[1]];
+    if (info) {
+      return {
+        time: info.startTime,
+        matched: m[0],
+        timeLabel: m[1],
+        endTime: info.endTime
+      };
+    }
+  }
   return null;
 }
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -2742,6 +2813,8 @@ function parseTaskText(text) {
       estimatedDur: dur == null ? estimateDuration(finalDesc) : null,
       date,
       startTime: startTimeInfo ? startTimeInfo.time : null,
+      timeLabel: startTimeInfo ? (startTimeInfo.timeLabel || null) : null,
+      endTime: startTimeInfo ? (startTimeInfo.endTime || null) : null,
       deadline,
       cat,
       priority: inferPriority(finalDesc, deadline, date, startTimeInfo ? startTimeInfo.time : null)
@@ -3530,7 +3603,13 @@ function showTaskDetailModal(taskId) {
 
     t.desc = newDesc;
     t.date = modal.querySelector('#td-date').value || todayStr();
-    t.startTime = modal.querySelector('#td-startTime').value || null;
+    const newStartTime = modal.querySelector('#td-startTime').value || null;
+    // 用户改动了开始时间 → 视为转为精确时间，清空模糊标签
+    if (t.timeLabel && newStartTime !== (t.startTime || null)) {
+      t.timeLabel = null;
+      t.endTime = null;
+    }
+    t.startTime = newStartTime;
     t.durPlan = parseInt(modal.querySelector('#td-durPlan').value, 10) || 60;
     t.deadline = newDeadline;
     t.notes = modal.querySelector('#td-notes').value;
@@ -3782,13 +3861,15 @@ function sortTasks(arr) {
     const pa = PRI_ORDER[a.priority] ?? 9;
     const pb = PRI_ORDER[b.priority] ?? 9;
     if (pa !== pb) return pa - pb;
-    // 同优先级：startTime 升序，没有 startTime 的排在最后
+    // 同优先级：startTime 升序，没有 startTime 的排在最后；都无时间则按创建时间升序
     const ta = a.startTime || null;
     const tb = b.startTime || null;
     if (ta && tb) return ta.localeCompare(tb);
     if (ta && !tb) return -1;
     if (!ta && tb) return 1;
-    return 0;
+    const ca = a.createdAt || 0;
+    const cb = b.createdAt || 0;
+    return ca - cb;
   });
 }
 
@@ -3849,7 +3930,9 @@ function taskCardHTML(t, opts={}) {
           </div>
         </div>
         <div class="task-row2">
-          ${t.startTime ? `<span class="time-tag" title="开始时间">◷ ${t.startTime}</span>` : ''}
+          ${t.timeLabel
+            ? `<span class="time-label-tag" onclick="event.stopPropagation(); showTimeLabelInfo('${t.id}', this)" title="模糊时间">${escapeHtml(t.timeLabel)}</span>`
+            : (t.startTime ? `<span class="time-tag" title="开始时间">◷ ${t.startTime}</span>` : '')}
           <span class="cat-tag" data-cat="${t.cat}" onclick="event.stopPropagation(); showCatPicker('${t.id}', this)">${t.cat}</span>
           ${durLine}
           ${deadlineTag(t.deadline)}
@@ -3861,6 +3944,56 @@ function taskCardHTML(t, opts={}) {
       </div>
     </div>
   `;
+}
+
+/* 模糊时间标签点击：显示区间提示 + 「改为精确时间」入口 */
+function showTimeLabelInfo(taskId, anchorEl) {
+  // 关掉已存在的 popover
+  document.querySelectorAll('.time-label-pop').forEach(el => el.remove());
+
+  const t = state.tasks.find(x => x.id === taskId);
+  if (!t || !t.timeLabel) return;
+
+  const pop = document.createElement('div');
+  pop.className = 'time-label-pop';
+  pop.innerHTML = `
+    <div class="tlp-range">${escapeHtml(t.timeLabel)} ${t.startTime || ''}${t.endTime ? '–' + t.endTime : ''}</div>
+    <div class="tlp-row">
+      <input type="time" value="${t.startTime || ''}">
+      <button type="button">改为精确时间</button>
+    </div>
+  `;
+  document.body.appendChild(pop);
+
+  const rect = anchorEl.getBoundingClientRect();
+  const top = rect.bottom + window.scrollY + 6;
+  const left = Math.max(8, Math.min(rect.left + window.scrollX, window.scrollX + window.innerWidth - 220));
+  pop.style.top = top + 'px';
+  pop.style.left = left + 'px';
+
+  const input = pop.querySelector('input');
+  const btn = pop.querySelector('button');
+  btn.onclick = () => {
+    const v = input.value;
+    if (!v) { toast('请先选择时间'); return; }
+    t.startTime = v;
+    t.timeLabel = null;
+    t.endTime = null;
+    saveState();
+    pop.remove();
+    render();
+  };
+
+  // 点外部关闭
+  setTimeout(() => {
+    const closer = (e) => {
+      if (!pop.contains(e.target)) {
+        pop.remove();
+        document.removeEventListener('click', closer, true);
+      }
+    };
+    document.addEventListener('click', closer, true);
+  }, 0);
 }
 
 function renderHeader() {
@@ -5972,6 +6105,7 @@ window.togglePinMemo = togglePinMemo;
 window.archiveMemo = archiveMemo;
 window.memoToTask = memoToTask;
 window.toggleMemoCollapsed = toggleMemoCollapsed;
+window.showTimeLabelInfo = showTimeLabelInfo;
 </script>
 </body>
 </html>
