@@ -978,18 +978,44 @@ function fmtTimer(ms) {
   if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
   return `${m}:${String(sec).padStart(2,'0')}`;
 }
+/**
+ * 数据持久化策略（重要）：
+ * - 唯一的 localStorage 键是 'chronos_state'，由 saveState/loadState 管理。
+ * - 代码更新（新版 index.html、新 SW 缓存版本）永远不会清空用户数据。
+ * - 只有用户在「设置」点击「清空所有数据」按钮（带 confirm）才会删 key。
+ * - 解析失败时，原始数据不会被覆盖：会另存为 chronos_state_corrupted_*
+ *   作为应急备份，主键暂时回退到默认状态，便于用户继续使用。
+ * - importData 也会先把现有数据备份到 chronos_state_backup_* 再覆盖。
+ */
 function loadState() {
+  let raw;
   try {
-    const raw = localStorage.getItem('chronos_state');
-    if (!raw) return JSON.parse(JSON.stringify(DEFAULT_STATE));
+    raw = localStorage.getItem('chronos_state');
+  } catch(e) {
+    console.warn('[Chronos] localStorage 不可用，回退到内存模式', e);
+    return JSON.parse(JSON.stringify(DEFAULT_STATE));
+  }
+  if (raw == null) return JSON.parse(JSON.stringify(DEFAULT_STATE));
+  try {
     const s = JSON.parse(raw);
+    if (!s || typeof s !== 'object') throw new Error('state 不是对象');
+    // 浅合并：新版本新增的字段自动获得默认值，已有用户数据完整保留
     return { ...JSON.parse(JSON.stringify(DEFAULT_STATE)), ...s };
   } catch(e) {
+    console.error('[Chronos] chronos_state 解析失败，已备份到 chronos_state_corrupted_*', e);
+    try {
+      const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+      localStorage.setItem('chronos_state_corrupted_' + ts, raw);
+    } catch(_) {}
     return JSON.parse(JSON.stringify(DEFAULT_STATE));
   }
 }
 function saveState() {
-  localStorage.setItem('chronos_state', JSON.stringify(state));
+  try {
+    localStorage.setItem('chronos_state', JSON.stringify(state));
+  } catch(e) {
+    console.error('[Chronos] saveState 失败（可能 localStorage 容量满或被禁用）', e);
+  }
 }
 function toast(msg, ms = 2000) {
   const t = document.getElementById('toast');
@@ -2899,12 +2925,23 @@ function importData(file) {
   r.onload = () => {
     try {
       const data = JSON.parse(r.result);
+      if (!data || typeof data !== 'object' || !Array.isArray(data.tasks)) {
+        throw new Error('文件不符合 Chronos 备份格式');
+      }
+      // 导入前自动把当前数据备份到独立 key，避免误导入导致丢数据
+      try {
+        const cur = localStorage.getItem('chronos_state');
+        if (cur) {
+          const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+          localStorage.setItem('chronos_state_backup_' + ts, cur);
+        }
+      } catch(_) {}
       state = { ...JSON.parse(JSON.stringify(DEFAULT_STATE)), ...data };
       saveState();
       render();
-      toast('导入成功');
+      toast('导入成功，旧数据已备份');
     } catch(e) {
-      toast('文件格式错误');
+      toast('导入失败：' + e.message);
     }
   };
   r.readAsText(file);
