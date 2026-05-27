@@ -478,6 +478,28 @@ h3 {
   border: none;
 }
 .morning-banner .close-x:hover { background: var(--bg-soft); color: var(--text); }
+
+/* 撤销条：自然语言操作后短暂出现，可点击撤销 */
+.undo-banner {
+  background: var(--accent-soft);
+  border: 1px solid rgba(155,107,63,0.20);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.undo-banner .msg { flex: 1; min-width: 0; font-size: 13px; color: var(--text); line-height: 1.5; }
+
+/* 截图导入：分组多选 */
+.import-group { margin-bottom: 18px; }
+.import-group:last-child { margin-bottom: 0; }
+.import-group-head {
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
 .recur-tag {
   display: inline-flex;
   padding: 2px 7px;
@@ -1004,6 +1026,17 @@ textarea.api-input {
   color: var(--text-soft);
 }
 .chat-toolbar .meta { font-variant-numeric: tabular-nums; }
+.checkin-btn { display:inline-flex; align-items:center; gap:8px; }
+.checkin-btn .rate {
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--text-soft);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.checkin-btn.is-active { background: var(--accent-soft); color: var(--accent); }
+.checkin-btn.is-active .rate { background: var(--bg-elev); }
 
 /* ===================== Toast ===================== */
 .toast {
@@ -1125,6 +1158,8 @@ let chartInstances = {};
 let chatHistory = []; // [{role:'user'|'assistant', content:'...'}] —— 内存中，不持久化
 let chatLoading = false;
 let morningPlan = null;   // { advice, order, noKey?, loading? } —— 当日内存态
+let lastOperation = null; // { snapshot, summary, ts } —— 上次自然语言操作的撤销快照
+let checkInMode = false;  // 助手 tab 是否进入"今日复盘"模式
 
 /* ---------------- 工具函数 ---------------- */
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
@@ -1239,6 +1274,10 @@ function dailyTick() {
   if (isCrossDay) {
     state.done = [];                                       // 清空昨日已完成
     state.tasks.forEach(t => { t.sortOrder = null; });     // AI 早间规划仅当日有效
+    // 助手相关跨日重置（内存态）
+    chatHistory = [];
+    checkInMode = false;
+    lastOperation = null;
   }
   state.lastDate = today;
 
@@ -1567,9 +1606,27 @@ function parseTaskText(text) {
 }
 
 /* ---------------- 输入提交 ---------------- */
+/* ---------------- 自然语言操作识别 ---------------- */
+const OPERATION_KW = /(?:推到|挪到|顺延|改成|改为|压缩|删除所有|今天不做|不做了|改时长|调整到|清空)/;
+
+function isOperationCommand(text) {
+  return OPERATION_KW.test(text);
+}
+
 function handleTextInput(text) {
   text = text.trim();
   if (!text) return;
+
+  // 操作指令优先：检测到关键词且有 API Key → 交给 AI 解析为 actions
+  if (isOperationCommand(text)) {
+    if (!getApiKey()) {
+      toast('操作指令需要先配置 API Key');
+      return;
+    }
+    callOperationAPI(text);
+    return;
+  }
+
   const parsed = parseTaskText(text);
   if (parsed.length === 0) { toast('没解析到任务'); return; }
 
@@ -1673,37 +1730,47 @@ async function handleImageUpload(file) {
 
   try {
     const today = todayStr();
-    const sysPrompt = `你是一个时间管理助手。用户会上传一张截图（可能是课表、日程、待办列表等）。请提取所有任务并返回 JSON 数组。
+    const sysPrompt = `今天日期是 ${today}。
+请从图片中提取所有事项和截止日期，包括周期性事件。
+返回 JSON 对象（不要 markdown，不要任何其它文字）：
 
-今天日期是 ${today}。
+{
+  "tasks": [
+    {
+      "desc": "描述（10字以内，不含时间地点班级）",
+      "date": "YYYY-MM-DD（单次任务的日期；循环任务填首次出现的日期）",
+      "startTime": "HH:MM 或 null",
+      "dur": 60,
+      "cat": "S/R/G/C",
+      "priority": "urgent-important/urgent-unimportant/important/normal",
+      "deadline": "YYYY-MM-DD 或 null",
+      "reminder": 30,
+      "notes": "备注：地点/签到/参考链接等",
+      "isRecur": false,
+      "recurFreq": "daily/weekly 或 null",
+      "recurWeekdays": []
+    }
+  ],
+  "summary": "识别到 X 个任务，包括 X 个截止日期 / X 个循环事件"
+}
 
-每个任务的字段必须严格遵循：
-- desc: 简短描述（10字以内，不要包含时间、地点、班级等信息）
-- date: YYYY-MM-DD（根据图片推断，如果只看到星期X，按本周或下周最近的那天）
-- startTime: "HH:MM" 24小时制 或 null（任务的开始时刻；下午四点半→"16:30"；早上8点→"08:00"；图片里没有具体时间则 null）
-- dur: 数字，分钟（默认60）
-- cat: "S"(学习xxx才算) / "R"(论文/实验/文献/导师/组会) / "G"(游泳/健身/跑步/阅读/冥想) / "C"(其他全部，包括上课/作业/会议/吃饭/通勤)
-- priority: "urgent-important" / "urgent-unimportant" / "important" / "normal"（判定规则见下）
-- deadline: YYYY-MM-DD 或 null
-- reminder: 提前分钟数，默认 30
-- notes: 备注（如需签到签退、地点等）
+规则：
+- 课程表 → 每节课都创建一个 isRecur:true 的循环任务，recurFreq:"weekly"，recurWeekdays 用 [0=周日..6=周六]
+- 群通知/作业列表 → 每个 DDL 一个单次任务，priority 用下面规则
+- "每天/每周X/每节课/每周一三五" → 循环任务
+- 一张截图里 5-20 个事项都要提取，不要漏
 
-优先级判定规则（请严格遵循）：
-1) 重要：desc 含 论文/作业/报告/考试/答辩/项目/实验/文献/提交/交/due/deadline/ddl → 标记重要
-2) 紧急：满足任一即紧急
-   - date 是今天或明天
-   - 距离 deadline ≤ 3 天
-   - desc 含 今天/明天/马上/立刻/紧急/尽快/截止
-3) 组合：
-   - 重要 + 紧急 → "urgent-important"（红）
-   - 重要 + 不紧急 → "important"（蓝）
-   - 不重要 + 紧急 → "urgent-unimportant"（橙）
-   - 不重要 + 不紧急 → 默认 "important"（蓝），宁可高估也不低估，绝不要给 normal
+分类规则：
+- 听课/抄作业/刷题/听讲座 → C，不是 S
+- 只有"学习+具体内容"才归 S
+- 论文/实验/文献/导师/组会 → R
+- 游泳/健身/跑步/阅读/冥想 → G
+- 其它（吃饭/通勤/会议/上课/作业等）→ C
 
-分类特别注意：听课、抄作业、刷题、听讲座 全部归 C，不归 S。
-只有"学习+具体内容"才归 S。
-
-只输出 JSON 数组，不要任何其他文字、不要 markdown。`;
+优先级判定（必须严格按这套规则）：
+1) 重要词：论文/作业/报告/考试/答辩/项目/实验/文献/提交/交/due/deadline/ddl
+2) 紧急条件：date 是今天/明天 或 deadline ≤ 3 天 或 含 今天/明天/马上/立刻/紧急/尽快/截止
+3) 组合：重要+紧急→urgent-important / 重要→important / 紧急→urgent-unimportant / 都不→默认 important (蓝)`;
 
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
@@ -1720,7 +1787,7 @@ async function handleImageUpload(file) {
             role: 'user',
             content: [
               { type: 'image_url', image_url: { url: `data:${mediaType};base64,${base64}` } },
-              { type: 'text', text: '请解析此截图中的所有任务，输出 JSON 数组。' }
+              { type: 'text', text: '请解析此截图中的所有事项和截止日期，包括周期性事件，按上述格式返回 JSON。' }
             ]
           }
         ]
@@ -1736,20 +1803,25 @@ async function handleImageUpload(file) {
     }
     const data = await resp.json();
     const txt = data.choices?.[0]?.message?.content || '';
-    let tasks;
+    let parsed;
     try {
-      const jsonMatch = txt.match(/\[[\s\S]*\]/);
-      tasks = JSON.parse(jsonMatch ? jsonMatch[0] : txt);
+      // 兼容老格式：可能返回数组
+      const objMatch = txt.match(/\{[\s\S]*\}/);
+      const arrMatch = txt.match(/\[[\s\S]*\]/);
+      if (objMatch) parsed = JSON.parse(objMatch[0]);
+      else if (arrMatch) parsed = { tasks: JSON.parse(arrMatch[0]), summary: '' };
+      else parsed = JSON.parse(txt);
     } catch(e) {
       toast('AI 返回格式异常');
       console.error(txt);
       return;
     }
+    const tasks = Array.isArray(parsed) ? parsed : (parsed.tasks || []);
     if (!Array.isArray(tasks) || tasks.length === 0) {
       toast('未识别到任务');
       return;
     }
-    showAITaskConfirmModal(tasks);
+    showImportGroupedModal(tasks, parsed.summary);
   } catch(e) {
     loadingToast.remove();
     toast('解析失败');
@@ -1757,7 +1829,158 @@ async function handleImageUpload(file) {
   }
 }
 
-function showAITaskConfirmModal(tasks) {
+function classifyImportItem(it) {
+  if (it.isRecur) return 'recur';
+  const today = todayStr();
+  const d = it.date || today;
+  if (d <= dateAdd(today, 1)) return 'urgent';        // 今天/明天/过期
+  if (d <= dateAdd(today, 7)) return 'week';
+  return 'later';
+}
+
+function showImportGroupedModal(tasks, summary) {
+  const groups = { urgent: [], week: [], later: [], recur: [] };
+  tasks.forEach((t, i) => { t.__i = i; groups[classifyImportItem(t)].push(t); });
+
+  const groupLabels = {
+    urgent: '今天 / 明天',
+    week:   '本周内',
+    later:  '本月及以后',
+    recur:  '循环任务'
+  };
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.innerHTML = `
+    <h2>AI 解析结果</h2>
+    <p class="text-soft text-sm" style="margin-bottom:16px">${escapeHtml(summary || `共识别 ${tasks.length} 项`)}</p>
+    <div id="ai-grouped">
+      ${Object.keys(groupLabels).map(gk => {
+        const list = groups[gk];
+        if (list.length === 0) return '';
+        return `
+          <div class="import-group" data-group="${gk}">
+            <div class="import-group-head">
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer; flex:1; text-transform:none; letter-spacing:0;">
+                <input type="checkbox" class="grp-master" data-group="${gk}" checked>
+                <span style="font-size:13px; font-weight:600; color:var(--text);">${groupLabels[gk]}</span>
+                <span style="font-size:11px; color:var(--text-soft);">· ${list.length} 项</span>
+              </label>
+            </div>
+            <div class="import-group-body">
+              ${list.map(it => `
+                <div class="modal-list-item">
+                  <input type="checkbox" checked class="item-cb" data-i="${it.__i}">
+                  <div style="flex:1; min-width:0">
+                    <div style="font-weight:500">${escapeHtml(it.desc || '未命名')}</div>
+                    <div class="text-xs text-soft" style="margin-top:2px">
+                      ${it.isRecur
+                        ? (it.recurFreq === 'daily' ? '每天' : '每周 ' + (it.recurWeekdays||[]).map(d=>'日一二三四五六'[d]).join('、'))
+                        : fmtDate(it.date || todayStr())}
+                      ${it.startTime ? ' · '+it.startTime : ''}
+                       · ${it.cat || 'C'}
+                       · ${it.priority || 'important'}
+                      ${it.deadline ? ' · DDL '+it.deadline : ''}
+                      ${it.notes ? ' · '+escapeHtml(it.notes) : ''}
+                    </div>
+                  </div>
+                  <input type="number" min="5" step="5" value="${it.dur || 60}" style="width:70px" data-dur="${it.__i}">
+                  <span class="text-xs text-soft">分</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="ai-cancel">取消</button>
+      <button class="btn-primary" id="ai-confirm">添加选中</button>
+    </div>
+  `;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  // 组主复选 → 控制本组所有 item
+  modal.querySelectorAll('.grp-master').forEach(m => {
+    m.addEventListener('change', () => {
+      const gk = m.dataset.group;
+      modal.querySelectorAll(`.import-group[data-group="${gk}"] .item-cb`).forEach(cb => {
+        cb.checked = m.checked;
+      });
+    });
+  });
+  // item 改变 → 同步组主状态（全选/部分/全空）
+  modal.querySelectorAll('.item-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const grp = cb.closest('.import-group');
+      const items = grp.querySelectorAll('.item-cb');
+      const m = grp.querySelector('.grp-master');
+      const checked = [...items].filter(x => x.checked).length;
+      m.checked = checked === items.length;
+      m.indeterminate = checked > 0 && checked < items.length;
+    });
+  });
+
+  modal.querySelector('#ai-cancel').onclick = () => backdrop.remove();
+  modal.querySelector('#ai-confirm').onclick = () => {
+    let addedTasks = 0, addedRecur = 0;
+    tasks.forEach(it => {
+      const cb = modal.querySelector(`.item-cb[data-i="${it.__i}"]`);
+      if (!cb || !cb.checked) return;
+      const dur = parseInt(modal.querySelector(`[data-dur="${it.__i}"]`).value, 10) || 60;
+
+      if (it.isRecur) {
+        let days = [];
+        if (it.recurFreq === 'daily') days = [0,1,2,3,4,5,6];
+        else if (it.recurFreq === 'weekly' && Array.isArray(it.recurWeekdays) && it.recurWeekdays.length > 0) {
+          days = it.recurWeekdays.filter(d => Number.isInteger(d) && d >= 0 && d <= 6);
+        } else {
+          days = [1,2,3,4,5];
+        }
+        if (days.length === 0) days = [1];
+        state.recurTemplates.push({
+          id: uid(),
+          desc: it.desc || '循环任务',
+          cat: it.cat || 'C',
+          priority: it.priority || 'normal',
+          durPlan: dur,
+          startTime: it.startTime || null,
+          days: days.sort(),
+          notes: it.notes || '',
+          createdAt: todayStr()
+        });
+        addedRecur++;
+      } else {
+        state.tasks.push(makeTask({
+          desc: it.desc || '未命名',
+          cat: it.cat || 'C',
+          priority: it.priority || 'important',
+          date: it.date || todayStr(),
+          startTime: it.startTime || null,
+          deadline: it.deadline || null,
+          durPlan: dur,
+          notes: it.notes || ''
+        }));
+        addedTasks++;
+      }
+    });
+    saveState();
+    if (addedRecur > 0) dailyTick();   // 循环模板需要立即注入实例
+    backdrop.remove();
+    render();
+    toast(`已添加 ${addedTasks} 个任务${addedRecur > 0 ? `，${addedRecur} 个循环` : ''}`);
+  };
+
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) backdrop.remove(); });
+}
+
+// 保留旧名称作为别名供其它代码引用
+function showAITaskConfirmModal(tasks) { return showImportGroupedModal(tasks, ''); }
+
+function __removed_showAITaskConfirmModal_old(tasks) {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   const modal = document.createElement('div');
@@ -2700,6 +2923,203 @@ function dismissMorningPlan() {
 }
 
 /* ---------------- AI 任务拆解 ---------------- */
+/* ---------------- 自然语言批量操作 ---------------- */
+async function callOperationAPI(userText) {
+  const apiKey = getApiKey();
+  if (!apiKey) { toast('请先在设置中填入 API Key'); return; }
+
+  const loading = showLoading('AI 正在理解你的指令');
+  const today = todayStr();
+  const trim = t => ({
+    id: t.id, desc: t.desc, cat: t.cat, priority: t.priority,
+    date: t.date, startTime: t.startTime, durPlan: t.durPlan
+  });
+  const ctx = {
+    today,
+    pending: state.tasks.map(trim),
+    done_today: state.done.map(trim)
+  };
+
+  const sysPrompt = `你是用户的私人时间管理助手。
+用户当前任务列表（JSON）：
+${JSON.stringify(ctx)}
+
+今天是 ${today}。
+
+用户的指令可能是：
+A) 对现有任务的操作（修改/删除/挪日期等）
+B) 创建新任务
+
+请严格判断并返回 JSON（不要 markdown，不要任何其它文字）：
+
+A) 操作指令格式：
+{
+  "type": "operation",
+  "actions": [
+    {"op": "reschedule", "taskId": "xxx", "newDate": "YYYY-MM-DD"},
+    {"op": "delete", "taskId": "xxx"},
+    {"op": "updateDur", "taskId": "xxx", "dur": 60},
+    {"op": "updateCat", "taskId": "xxx", "cat": "S"},
+    {"op": "updatePriority", "taskId": "xxx", "priority": "urgent-important"}
+  ],
+  "summary": "我帮你把 3 个 C 类任务推到了明天"
+}
+
+B) 新任务格式：
+{
+  "type": "task",
+  "summary": "已添加 2 个新任务"
+}
+（如果是新任务，前端会用本地解析处理）
+
+注意：
+- taskId 必须是输入列表里真实存在的 id
+- "把今天所有 C 类推到明天"应展开为多个 reschedule action
+- "删除所有已完成"应展开为多个 delete action，针对 done_today 里的项
+- summary 是给用户看的中文确认信息，简洁友好`;
+
+  try {
+    const resp = await fetch(QWEN_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: QWEN_MODEL_TEXT,
+        max_tokens: 2048,
+        messages: [
+          { role: 'system', content: sysPrompt },
+          { role: 'user', content: userText }
+        ]
+      })
+    });
+    loading.remove();
+    if (!resp.ok) { toast('API 调用失败'); return; }
+    const data = await resp.json();
+    const txt = data.choices?.[0]?.message?.content || '';
+    const m = txt.match(/\{[\s\S]*\}/);
+    if (!m) { toast('AI 返回格式异常'); return; }
+    const obj = JSON.parse(m[0]);
+
+    if (obj.type === 'operation' && Array.isArray(obj.actions)) {
+      const applied = applyOperations(obj.actions, obj.summary || '已执行操作');
+      if (applied === 0) toast('未识别到可执行的操作');
+    } else if (obj.type === 'task') {
+      // AI 判定是新任务，fallback 给本地解析
+      const parsed = parseTaskText(userText);
+      if (parsed.length > 0 && parsed[0].type !== 'recur') {
+        parsed.forEach(p => state.tasks.push(makeTask(p)));
+        saveState();
+        render();
+        toast(obj.summary || `已添加 ${parsed.length} 个任务`);
+      } else {
+        toast(obj.summary || '已添加任务');
+      }
+    } else {
+      toast('AI 未识别意图');
+    }
+  } catch(e) {
+    loading.remove();
+    toast('操作失败：' + e.message);
+  }
+}
+
+function deepClone(v) { return JSON.parse(JSON.stringify(v)); }
+
+function applyOperations(actions, summary) {
+  // 先快照便于撤销
+  const snapshot = {
+    tasks: deepClone(state.tasks),
+    done: deepClone(state.done),
+    recurTemplates: deepClone(state.recurTemplates),
+    favorites: deepClone(state.favorites)
+  };
+
+  let applied = 0;
+  for (const action of actions) {
+    if (!action || !action.op) continue;
+    if (action.op === 'delete' && action.taskId) {
+      const before = state.tasks.length + state.done.length;
+      state.tasks = state.tasks.filter(t => t.id !== action.taskId);
+      state.done = state.done.filter(t => t.id !== action.taskId);
+      if (state.tasks.length + state.done.length < before) applied++;
+      continue;
+    }
+    const t = findTask(action.taskId);
+    if (!t) continue;
+    switch (action.op) {
+      case 'reschedule':
+      case 'updateDate':
+        if (typeof action.newDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(action.newDate)) {
+          t.date = action.newDate;
+          t.rollover = false;
+          t.rolloverCount = 0;
+          applied++;
+        }
+        break;
+      case 'updateDur':
+        if (typeof action.dur === 'number' && action.dur >= 5) {
+          t.durPlan = action.dur;
+          applied++;
+        }
+        break;
+      case 'updateCat':
+        if (typeof action.cat === 'string' && /^[SRGC]$/.test(action.cat)) {
+          t.cat = action.cat;
+          applied++;
+        }
+        break;
+      case 'updatePriority':
+        if (typeof action.priority === 'string' && /^(urgent-important|urgent-unimportant|important|normal)$/.test(action.priority)) {
+          t.priority = action.priority;
+          t.priorityManualOverride = true;
+          applied++;
+        }
+        break;
+      case 'updateStartTime':
+        if (typeof action.startTime === 'string' && /^\d{2}:\d{2}$/.test(action.startTime)) {
+          t.startTime = action.startTime;
+          applied++;
+        }
+        break;
+    }
+  }
+
+  if (applied > 0) {
+    lastOperation = { snapshot, summary, ts: Date.now() };
+    // 12 秒后自动隐藏撤销条（不真正销毁数据）
+    setTimeout(() => {
+      if (lastOperation && Date.now() - lastOperation.ts >= 11000) {
+        lastOperation = null;
+        if (currentTab === 'plans' || currentTab === 'today') render();
+      }
+    }, 12000);
+  }
+  saveState();
+  render();
+  return applied;
+}
+
+function undoLastOperation() {
+  if (!lastOperation) return;
+  state.tasks = lastOperation.snapshot.tasks;
+  state.done = lastOperation.snapshot.done;
+  state.recurTemplates = lastOperation.snapshot.recurTemplates;
+  state.favorites = lastOperation.snapshot.favorites;
+  lastOperation = null;
+  saveState();
+  render();
+  toast('已撤销');
+}
+
+function renderUndoBanner() {
+  if (!lastOperation) return '';
+  return `
+    <div class="undo-banner">
+      <div class="msg">${escapeHtml(lastOperation.summary)}</div>
+      <button class="btn-secondary" onclick="undoLastOperation()" style="min-height:36px; padding:6px 14px;">撤销</button>
+    </div>
+  `;
+}
+
 async function decomposeTask(taskId) {
   const apiKey = getApiKey();
   if (!apiKey) { toast('请先在设置中填入 API Key'); return; }
@@ -2816,10 +3236,11 @@ function showDecomposeConfirmModal(parentTask, subtasks) {
 function renderPlans() {
   const main = document.getElementById('main');
   main.innerHTML = `
+    ${renderUndoBanner()}
     ${renderMorningBanner()}
     ${renderProcrastinationBanner()}
     <div class="input-bar">
-      <input id="task-input" placeholder="说点什么…例：明天下午写论文2小时" autocomplete="off">
+      <input id="task-input" placeholder="新任务或操作指令，例：把今天 C 类推到明天" autocomplete="off">
       <button class="btn-icon" id="img-btn" title="截图解析">⎙</button>
       <button class="btn-icon" id="fav-btn" title="收藏">★</button>
     </div>
@@ -3404,7 +3825,41 @@ function buildAssistantContext() {
   };
 }
 
+function buildCheckInSystemPrompt() {
+  const today = todayStr();
+  const todayUnfinished = state.tasks.filter(t => t.date === today);
+  const todayDone = state.done.filter(t => t.date === today);
+  const totalTasks = todayUnfinished.length + todayDone.length;
+  const doneTasks = todayDone.length;
+  const rate = totalTasks > 0 ? Math.round(doneTasks / totalTasks * 100) : 0;
+
+  const sumMin = (arr, c) => arr.filter(x => x.cat === c).reduce((s, x) => {
+    const isDone = state.done.some(d => d.id === x.id);
+    return s + ((isDone ? (x.durActual ?? x.durPlan) : x.durPlan) || 0);
+  }, 0);
+  const all = [...todayUnfinished, ...todayDone];
+  const h = c => (sumMin(all, c) / 60).toFixed(1);
+
+  return `你是用户的私人时间管家，名字叫 Chronos。
+今天是 ${today}。
+
+用户今日数据：
+- 计划任务：${totalTasks} 个
+- 已完成：${doneTasks} 个
+- 完成率：${rate}%
+- 已完成任务：${todayDone.map(t => t.desc).join('、') || '（无）'}
+- 未完成任务：${todayUnfinished.map(t => t.desc).join('、') || '（无）'}
+- 各分类时长：S:${h('S')}h R:${h('R')}h G:${h('G')}h C:${h('C')}h
+
+请用温暖、不评判的语气和用户对话。
+不要说教，不要催促，像一个理解你的朋友。
+- 第一句简短问候，提到完成数，问"今天感觉怎么样？"
+- 用户回应后：一句肯定（不管完成多少都要找到值得肯定的）+ 一个具体的明日建议；如果有未完成任务，温和地问是否要调整
+- 控制每条回复在 100 字以内`;
+}
+
 function buildAssistantSystemPrompt() {
+  if (checkInMode) return buildCheckInSystemPrompt();
   const ctx = buildAssistantContext();
   const wd = '日一二三四五六'[new Date().getDay()];
   return `你是用户的私人日程助手。以下是用户当前所有任务数据（JSON）：
@@ -3437,19 +3892,29 @@ ${JSON.stringify(ctx, null, 2)}
 
 function renderAssistant() {
   const main = document.getElementById('main');
+  const today = todayStr();
+  const todayU = state.tasks.filter(t => t.date === today).length;
+  const todayD = state.done.filter(t => t.date === today).length;
+  const totalToday = todayU + todayD;
+
   main.innerHTML = `
     <div class="chat-toolbar">
-      <span class="meta">已加载 ${state.tasks.length} 个待办 · ${state.done.length} 已完成 · ${chatHistory.length} 条对话</span>
+      <button class="btn-secondary checkin-btn ${checkInMode ? 'is-active' : ''}" id="checkin-btn" style="padding:8px 14px; min-height:36px; font-size:13px">
+        ${checkInMode ? '↻ 重新复盘' : '今日复盘'} <span class="rate">${todayD}/${totalToday}</span>
+      </button>
+      <span class="meta" style="margin-left:auto">${chatHistory.length} 条对话</span>
       <button class="btn-secondary" id="chat-clear" style="padding:6px 12px; min-height:32px; font-size:12px">新对话</button>
     </div>
     <div class="chat-scroll" id="chat-scroll"></div>
     <div class="chat-input-bar">
-      <textarea id="chat-input" placeholder="问点什么…例：今天还有什么没完成？" rows="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+      <textarea id="chat-input" placeholder="${checkInMode ? '说说你今天的感受…' : '问点什么…例：今天还有什么没完成？'}" rows="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
       <button class="btn-primary" id="chat-send" style="min-height:48px">发送</button>
     </div>
   `;
 
   renderChatMessages();
+
+  main.querySelector('#checkin-btn').onclick = startCheckIn;
 
   const input = main.querySelector('#chat-input');
   const sendBtn = main.querySelector('#chat-send');
@@ -3524,6 +3989,46 @@ function renderChatMessages() {
     </div>
   ` : '');
   box.scrollTop = box.scrollHeight;
+}
+
+async function startCheckIn() {
+  const apiKey = getApiKey();
+  if (!apiKey) { toast('请先在设置中填入 API Key'); return; }
+  // 切换到复盘模式，重置历史
+  checkInMode = true;
+  chatHistory = [];
+  chatLoading = true;
+  currentTab = 'assistant';
+  document.querySelectorAll('.tabbar .tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === 'assistant');
+  });
+  render();
+
+  try {
+    const resp = await fetch(QWEN_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: QWEN_MODEL_TEXT,
+        max_tokens: 256,
+        messages: [
+          { role: 'system', content: buildCheckInSystemPrompt() },
+          { role: 'user', content: '开始今日复盘，简短问候我并问我今天感觉怎么样' }
+        ]
+      })
+    });
+    if (!resp.ok) throw new Error('API ' + resp.status);
+    const data = await resp.json();
+    const reply = data.choices?.[0]?.message?.content || '今天感觉怎么样？';
+    chatHistory.push({ role: 'assistant', content: reply });
+  } catch(e) {
+    chatHistory.push({ role: 'assistant', content: `复盘启动失败：${e.message}` });
+  } finally {
+    chatLoading = false;
+    renderChatMessages();
+    const tb = document.querySelector('.chat-toolbar .meta');
+    if (tb) tb.textContent = `${chatHistory.length} 条对话`;
+  }
 }
 
 async function sendChatMessage(text) {
@@ -3971,6 +4476,8 @@ window.scrollToFirstProcrastinated = scrollToFirstProcrastinated;
 window.acceptMorningPlan = acceptMorningPlan;
 window.dismissMorningPlan = dismissMorningPlan;
 window.decomposeTask = decomposeTask;
+window.undoLastOperation = undoLastOperation;
+window.startCheckIn = startCheckIn;
 </script>
 </body>
 </html>
