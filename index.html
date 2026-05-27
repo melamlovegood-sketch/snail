@@ -5297,34 +5297,67 @@ function makeSpiralPath(cx, cy, startR, endR, turns, steps) {
   }
   return d.trim();
 }
-function setupSplash() {
-  const splash = document.getElementById('splash');
-  const main = document.querySelector('.app');
-  const tabbar = document.querySelector('.tabbar');
+/* ============== 开屏：固定 2 秒自动消失（绝不卡住）==============
+ * 设计原则：
+ *  - 用 DOMContentLoaded 作触发点，避免依赖任何其它启动代码
+ *  - setTimeout 完全独立，不依赖点击、touchstart、SW、Supabase 等任何外部事件
+ *  - 元素 null 也兜底显示主界面，绝不出现"白屏卡住"
+ *  - console.log 输出每一步，控制台可直接看到执行轨迹
+ */
+function __runSplashDismiss() {
+  var splash = document.getElementById('splash');
+  var main = document.querySelector('.app');           // 主界面用 class="app"
+  var tabbar = document.querySelector('.tabbar');
+
+  console.log('[Splash] DOMContentLoaded/ready; splash =', splash, 'main =', main, 'tabbar =', tabbar);
+
+  // 注入螺旋路径（仅视觉，不影响动画逻辑）
+  if (splash) {
+    var pathEl = splash.querySelector('#splash-spiral');
+    if (pathEl && typeof makeSpiralPath === 'function') {
+      try { pathEl.setAttribute('d', makeSpiralPath(75, 50, 20, 3, 2.5, 120)); } catch(_) {}
+    }
+  }
+
+  // 兜底：splash 元素不存在时，立即显示主界面，不再等
   if (!splash) {
-    // 没有 splash 时直接显示主界面（兜底）
+    console.warn('[Splash] splash 元素不存在，直接显示主界面');
     if (main) main.style.display = '';
     if (tabbar) tabbar.style.display = '';
     return;
   }
 
-  // 注入螺旋路径（壳中心 (75,50)、外径 20、内径 3、2.5 圈、120 段折线）
-  const pathEl = splash.querySelector('#splash-spiral');
-  if (pathEl) pathEl.setAttribute('d', makeSpiralPath(75, 50, 20, 3, 2.5, 120));
-
-  // 固定 2 秒后自动淡出，不依赖任何点击/事件触发
-  setTimeout(() => {
+  // 固定 2 秒后开始淡出
+  setTimeout(function() {
+    console.log('[Splash] 2s 到期，开始淡出');
     splash.style.transition = 'opacity 0.4s ease-out';
     splash.style.opacity = '0';
-    setTimeout(() => {
+    // 0.4s 淡出动画结束后隐藏 splash + 显示主界面
+    setTimeout(function() {
+      splash.style.display = 'none';
+      if (main) { main.style.display = ''; main.style.opacity = '1'; }
+      if (tabbar) tabbar.style.display = '';
+      console.log('[Splash] 已隐藏，主界面已显示');
+    }, 400);
+  }, 2000);
+
+  // 终极兜底：5 秒后如果 splash 仍可见，强制显示主界面（防止任何边缘情况卡住）
+  setTimeout(function() {
+    if (splash && splash.style.display !== 'none') {
+      console.warn('[Splash] 5s 终极兜底：强制隐藏 splash');
       splash.style.display = 'none';
       if (main) main.style.display = '';
       if (tabbar) tabbar.style.display = '';
-    }, 400);
-  }, 2000);
+    }
+  }, 5000);
 }
-// 每个启动步骤都独立 try/catch，单点失败不再拖垮整个 app
-try { setupSplash(); } catch(e) { console.error('[Chronos] setupSplash 失败:', e); }
+
+// DOMContentLoaded 已过则直接跑；未过则等事件
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', __runSplashDismiss);
+} else {
+  __runSplashDismiss();
+}
 
 console.log('[Chronos] booting…');
 try { applyTheme(); } catch(e) { console.error('[Chronos] applyTheme 失败:', e); }
