@@ -501,6 +501,62 @@ h3 { font-size: 17px; font-weight: 600; margin: 0; }
   box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
+/* ===================== 详情模态框表单 ===================== */
+.form-group { margin-bottom: 16px; }
+.form-group label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-soft);
+  margin-bottom: 6px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.form-group input[type=text],
+.form-group input[type=number],
+.form-group input[type=date],
+.form-group input[type=time],
+.form-group textarea {
+  width: 100%;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 14px;
+  outline: none;
+  color: var(--text);
+  font-family: inherit;
+  transition: border-color 0.15s;
+  min-height: 40px;
+}
+.form-group input:focus, .form-group textarea:focus {
+  border-color: var(--accent);
+}
+.form-group textarea { resize: vertical; min-height: 72px; }
+.form-row { display: flex; gap: 12px; margin-bottom: 0; }
+.form-row .form-group { flex: 1; }
+.td-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.td-chips button {
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-soft);
+  min-height: 40px;
+  transition: all 0.15s;
+}
+.td-chips button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+.task-main { cursor: pointer; }
+
 textarea.api-input {
   width: 100%;
   background: var(--bg-soft);
@@ -639,6 +695,111 @@ textarea.api-input {
 .fav-row .fav-desc { flex: 1; font-size: 14px; }
 .fav-row .fav-meta { font-size: 12px; color: var(--text-soft); }
 
+/* ===================== AI 助手对话 ===================== */
+.chat-scroll {
+  background: var(--bg-elev);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-soft);
+  padding: 16px;
+  min-height: 380px;
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-faint);
+}
+.chat-empty .big { font-size: 32px; margin-bottom: 12px; opacity: 0.6; }
+.chat-empty .hint { font-size: 13px; margin-bottom: 20px; }
+.chat-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 360px;
+}
+.chat-suggestion {
+  background: var(--bg-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  min-height: 40px;
+  transition: background 0.15s;
+}
+.chat-suggestion:hover { background: var(--border); }
+
+.chat-msg { display: flex; }
+.chat-msg.user { justify-content: flex-end; }
+.chat-msg.assistant { justify-content: flex-start; }
+.chat-msg .bubble {
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-msg.user .bubble {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-bottom-right-radius: 4px;
+}
+.chat-msg.assistant .bubble {
+  background: var(--bg-soft);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+}
+.chat-msg.loading .bubble {
+  color: var(--text-soft);
+  font-style: italic;
+}
+.chat-input-bar {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.chat-input-bar textarea {
+  flex: 1;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 15px;
+  outline: none;
+  font-family: inherit;
+  resize: none;
+  min-height: 48px;
+  max-height: 160px;
+  line-height: 1.5;
+  color: var(--text);
+  transition: border-color 0.15s;
+}
+.chat-input-bar textarea:focus { border-color: var(--accent); }
+.chat-input-bar button { flex-shrink: 0; }
+.chat-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.chat-toolbar .meta { font-variant-numeric: tabular-nums; }
+
 /* ===================== Toast ===================== */
 .toast {
   position: fixed;
@@ -709,6 +870,9 @@ textarea.api-input {
   <button class="tab" data-tab="stats">
     <span class="icon">◐</span><span>统计</span>
   </button>
+  <button class="tab" data-tab="assistant">
+    <span class="icon">✦</span><span>助手</span>
+  </button>
   <button class="tab" data-tab="settings">
     <span class="icon">⚙</span><span>设置</span>
   </button>
@@ -751,6 +915,8 @@ let activePopover = null;
 let timerInterval = null;
 let statView = 'day'; // day | week | month
 let chartInstances = {};
+let chatHistory = []; // [{role:'user'|'assistant', content:'...'}] —— 内存中，不持久化
+let chatLoading = false;
 
 /* ---------------- 工具函数 ---------------- */
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
@@ -1050,13 +1216,30 @@ function parseRecur(text) {
 function parseSegments(text) {
   return text.split(/[,，、]|然后|接着|再/).map(s => s.trim()).filter(Boolean);
 }
-function inferPriority(desc, deadline) {
+function inferPriority(desc, deadline, date, startTime) {
+  const today = todayStr();
+  // 紧急关键词：提交动作 + 截止表达 + 既有紧急词
+  const URGENT_KW = /提交|上交|交\s*(?:论文|作业|报告|材料|表|方案|项目|实验报告)|[要得需]\s*交|要交|得交|截止|ddl|due|紧急|今晚|今天必须|马上|立刻|急(?!救)/i;
+  // 重要关键词：高分值的事项
+  const IMPORTANT_KW = /论文|作业|报告|考试|答辩|测验|期末|期中|presentation/i;
+
+  let urgent = false, important = false;
+  if (URGENT_KW.test(desc)) urgent = true;
+  if (IMPORTANT_KW.test(desc)) important = true;
+
+  // 今天有明确开始时间的任务 → 至少紧急
+  if (date === today && startTime) urgent = true;
+
+  // deadline 临近升级
   if (deadline) {
-    const d = diffDays(todayStr(), deadline);
-    if (d <= 3) return 'urgent-important';
-    if (d <= 7) return 'important';
+    const d = diffDays(today, deadline);
+    if (d <= 3) urgent = true;
+    if (d <= 7) important = true;
   }
-  if (/(紧急|急|今晚|今天必须|马上|立刻)/.test(desc)) return 'urgent-important';
+
+  if (urgent && important) return 'urgent-important';
+  if (urgent) return 'urgent-unimportant';
+  if (important) return 'important';
   return 'normal';
 }
 function estimateDuration(desc) {
@@ -1119,7 +1302,7 @@ function parseTaskText(text) {
       startTime: startTimeInfo ? startTimeInfo.time : null,
       deadline,
       cat,
-      priority: inferPriority(finalDesc, deadline)
+      priority: inferPriority(finalDesc, deadline, date, startTimeInfo ? startTimeInfo.time : null)
     };
   });
 }
@@ -1563,6 +1746,134 @@ function deleteTask(taskId) {
   render();
 }
 
+/* ---------------- 任务详情模态框 ---------------- */
+function showTaskDetailModal(taskId) {
+  closePopover();
+  const t = findTask(taskId);
+  if (!t) return;
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+
+  const catItems = [['S','S 学习'],['R','R 研究'],['G','G 成长'],['C','C 杂事']];
+  const priItems = [
+    ['urgent-important','紧急 · 重要'],
+    ['urgent-unimportant','紧急 · 不重要'],
+    ['important','重要 · 不紧急'],
+    ['normal','不重要 · 不紧急']
+  ];
+
+  modal.innerHTML = `
+    <h2>任务详情</h2>
+
+    <div class="form-group">
+      <label>描述</label>
+      <input type="text" id="td-desc" value="${escapeHtml(t.desc)}">
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>日期</label>
+        <input type="date" id="td-date" value="${t.date}">
+      </div>
+      <div class="form-group">
+        <label>开始时间</label>
+        <input type="time" id="td-startTime" value="${t.startTime || ''}">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>计划时长（分钟）</label>
+        <input type="number" id="td-durPlan" value="${t.durPlan}" min="5" step="5">
+      </div>
+      <div class="form-group">
+        <label>截止日期</label>
+        <input type="date" id="td-deadline" value="${t.deadline || ''}">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>分类</label>
+      <div class="td-chips" id="td-cat">
+        ${catItems.map(([k,l]) => `<button type="button" data-v="${k}" class="${t.cat===k?'active':''}">${l}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>优先级</label>
+      <div class="td-chips" id="td-pri">
+        ${priItems.map(([k,l]) => `<button type="button" data-v="${k}" class="${t.priority===k?'active':''}">${l}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>备注</label>
+      <textarea id="td-notes" rows="3" placeholder="例如：地点、需要签到签退、参考资料链接等">${escapeHtml(t.notes || '')}</textarea>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-secondary" id="td-cancel">取消</button>
+      <button class="btn-primary" id="td-save">保存</button>
+    </div>
+  `;
+
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  // chip 单选
+  modal.querySelectorAll('.td-chips').forEach(group => {
+    group.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-v]');
+      if (!btn) return;
+      group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  const close = () => backdrop.remove();
+  modal.querySelector('#td-cancel').onclick = close;
+
+  modal.querySelector('#td-save').onclick = () => {
+    const newDesc = modal.querySelector('#td-desc').value.trim();
+    if (!newDesc) { toast('描述不能为空'); return; }
+
+    const newDeadline = modal.querySelector('#td-deadline').value || null;
+    if (newDeadline !== (t.deadline || null)) {
+      // deadline 变更，让下次 dailyTick 重新评估紧急升级
+      t.deadlineUrgencyApplied = false;
+    }
+
+    t.desc = newDesc;
+    t.date = modal.querySelector('#td-date').value || todayStr();
+    t.startTime = modal.querySelector('#td-startTime').value || null;
+    t.durPlan = parseInt(modal.querySelector('#td-durPlan').value, 10) || 60;
+    t.deadline = newDeadline;
+    t.notes = modal.querySelector('#td-notes').value;
+
+    const selCat = modal.querySelector('#td-cat button.active');
+    if (selCat) t.cat = selCat.dataset.v;
+
+    const selPri = modal.querySelector('#td-pri button.active');
+    if (selPri && selPri.dataset.v !== t.priority) {
+      t.priority = selPri.dataset.v;
+      t.priorityManualOverride = true;
+    }
+
+    saveState();
+    close();
+    render();
+    toast('已保存');
+  };
+
+  // 点击模态外部关闭
+  backdrop.addEventListener('click', e => {
+    if (e.target === backdrop) close();
+  });
+}
+
 /* ---------------- 收藏 ---------------- */
 function favoriteTask(taskId) {
   const t = findTask(taskId);
@@ -1659,7 +1970,7 @@ function taskCardHTML(t, opts={}) {
     <div class="task-card ${isDone ? 'done' : ''}">
       <button class="complete-btn" onclick="toggleComplete('${t.id}')" title="${isDone ? '取消完成' : '标记完成'}"></button>
       <span class="pri-dot pri-${t.priority}" onclick="event.stopPropagation(); showPriorityPicker('${t.id}', this)" title="点击修改优先级"></span>
-      <div class="task-main">
+      <div class="task-main" onclick="showTaskDetailModal('${t.id}')" title="点击查看详情">
         <div class="task-row1">
           <span class="task-desc">${escapeHtml(t.desc)}</span>
         </div>
@@ -1683,7 +1994,7 @@ function taskCardHTML(t, opts={}) {
 }
 
 function renderHeader() {
-  const titles = { plans: '全部计划', today: '今日日程', recur: '循环任务', stats: '统计', settings: '设置' };
+  const titles = { plans: '全部计划', today: '今日日程', recur: '循环任务', stats: '统计', assistant: '助手', settings: '设置' };
   document.getElementById('page-title').textContent = titles[currentTab];
   const today = new Date();
   const wd = '日一二三四五六'[today.getDay()];
@@ -2260,6 +2571,200 @@ async function aiSummary(view) {
   }
 }
 
+/* ---------------- AI 助手对话 ---------------- */
+function buildAssistantContext() {
+  const trim = t => ({
+    desc: t.desc,
+    cat: t.cat,
+    priority: t.priority,
+    date: t.date,
+    startTime: t.startTime,
+    deadline: t.deadline,
+    durPlan: t.durPlan,
+    durActual: t.durActual,
+    notes: t.notes,
+    isRecur: t.isRecur,
+    rollover: t.rollover
+  });
+  return {
+    today: todayStr(),
+    pending: state.tasks.map(trim),
+    done_today: state.done.map(trim),
+    recurTemplates: state.recurTemplates.map(tpl => ({
+      desc: tpl.desc, cat: tpl.cat, days: tpl.days, durPlan: tpl.durPlan, startTime: tpl.startTime
+    })),
+    recurDoneLog: state.recurDoneLog
+  };
+}
+
+function buildAssistantSystemPrompt() {
+  const ctx = buildAssistantContext();
+  const wd = '日一二三四五六'[new Date().getDay()];
+  return `你是用户的私人日程助手。以下是用户当前所有任务数据（JSON）：
+
+${JSON.stringify(ctx, null, 2)}
+
+今天是 ${ctx.today}（周${wd}）。
+
+字段含义：
+- pending：未完成任务列表
+- done_today：今日已完成（每天 0 点会重置）
+- recurTemplates：循环任务模板（days 是 0=周日 ... 6=周六）
+- recurDoneLog：循环任务完成记录，key 形如 "templateId_YYYY-MM-DD"
+- cat：S=学习 / R=研究 / G=成长（健身阅读等） / C=杂事
+- priority：urgent-important(红) / urgent-unimportant(橙) / important(蓝) / normal(绿)
+- durPlan 计划分钟数，durActual 实际分钟数
+
+回答要求：
+- 语气像了解用户的朋友，简洁直接，不说教不重复问题
+- 用中文回答
+- 涉及具体任务时直接引用任务描述
+- 给出可执行的建议，不要泛泛而谈
+- 控制在 200 字以内，长答案用列表`;
+}
+
+function renderAssistant() {
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="chat-toolbar">
+      <span class="meta">已加载 ${state.tasks.length} 个待办 · ${state.done.length} 已完成 · ${chatHistory.length} 条对话</span>
+      <button class="btn-secondary" id="chat-clear" style="padding:6px 12px; min-height:32px; font-size:12px">新对话</button>
+    </div>
+    <div class="chat-scroll" id="chat-scroll"></div>
+    <div class="chat-input-bar">
+      <textarea id="chat-input" placeholder="问点什么…例：今天还有什么没完成？" rows="1"></textarea>
+      <button class="btn-primary" id="chat-send" style="min-height:48px">发送</button>
+    </div>
+  `;
+
+  renderChatMessages();
+
+  const input = main.querySelector('#chat-input');
+  const sendBtn = main.querySelector('#chat-send');
+
+  // 自动高度
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+  });
+
+  // Enter 发送 / Shift+Enter 换行
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      doSend();
+    }
+  });
+
+  sendBtn.onclick = doSend;
+
+  main.querySelector('#chat-clear').onclick = () => {
+    if (chatHistory.length === 0) return;
+    if (confirm('清空当前对话历史？')) {
+      chatHistory = [];
+      renderAssistant();
+    }
+  };
+
+  function doSend() {
+    const text = input.value.trim();
+    if (!text || chatLoading) return;
+    input.value = '';
+    input.style.height = 'auto';
+    sendChatMessage(text);
+  }
+}
+
+function renderChatMessages() {
+  const box = document.getElementById('chat-scroll');
+  if (!box) return;
+  if (chatHistory.length === 0 && !chatLoading) {
+    const suggestions = [
+      '我今天还有什么没完成？',
+      '这周 G 类时间够吗？',
+      '帮我看看优先级有没有问题',
+      '明天最重要的事是什么？'
+    ];
+    box.innerHTML = `
+      <div class="chat-empty">
+        <div class="big">✦</div>
+        <div class="hint">问我任何关于你计划的问题</div>
+        <div class="chat-suggestions">
+          ${suggestions.map(s => `<button class="chat-suggestion" data-q="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('')}
+        </div>
+      </div>
+    `;
+    box.querySelectorAll('.chat-suggestion').forEach(btn => {
+      btn.onclick = () => {
+        const q = btn.dataset.q;
+        sendChatMessage(q);
+      };
+    });
+    return;
+  }
+  box.innerHTML = chatHistory.map(m => `
+    <div class="chat-msg ${m.role}">
+      <div class="bubble">${escapeHtml(m.content)}</div>
+    </div>
+  `).join('') + (chatLoading ? `
+    <div class="chat-msg assistant loading">
+      <div class="bubble">正在思考…</div>
+    </div>
+  ` : '');
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendChatMessage(text) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    chatHistory.push({ role: 'user', content: text });
+    chatHistory.push({ role: 'assistant', content: '请先在设置中填入 API Key。' });
+    renderChatMessages();
+    return;
+  }
+  if (chatLoading) return;
+
+  chatHistory.push({ role: 'user', content: text });
+  chatLoading = true;
+  renderChatMessages();
+
+  try {
+    const messages = [
+      { role: 'system', content: buildAssistantSystemPrompt() },
+      ...chatHistory
+    ];
+    const resp = await fetch(QWEN_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: QWEN_MODEL_TEXT,
+        max_tokens: 1024,
+        messages
+      })
+    });
+
+    if (!resp.ok) {
+      const errTxt = await resp.text().catch(() => '');
+      chatHistory.push({ role: 'assistant', content: `API 调用失败（${resp.status}）。${errTxt ? errTxt.slice(0,200) : ''}` });
+    } else {
+      const data = await resp.json();
+      const reply = data.choices?.[0]?.message?.content || '（没收到内容）';
+      chatHistory.push({ role: 'assistant', content: reply });
+    }
+  } catch(e) {
+    chatHistory.push({ role: 'assistant', content: `出错了：${e.message}` });
+  } finally {
+    chatLoading = false;
+    renderChatMessages();
+    // 刷新工具栏的消息计数
+    const tb = document.querySelector('.chat-toolbar .meta');
+    if (tb) tb.textContent = `已加载 ${state.tasks.length} 个待办 · ${state.done.length} 已完成 · ${chatHistory.length} 条对话`;
+  }
+}
+
 /* ---------------- 设置 ---------------- */
 function renderSettings() {
   const main = document.getElementById('main');
@@ -2503,6 +3008,7 @@ function render() {
   else if (currentTab === 'today') renderToday();
   else if (currentTab === 'recur') renderRecur();
   else if (currentTab === 'stats') renderStats();
+  else if (currentTab === 'assistant') renderAssistant();
   else if (currentTab === 'settings') renderSettings();
 }
 
@@ -2559,6 +3065,7 @@ window.addFromFavorite = addFromFavorite;
 window.exportTaskICS = exportTaskICS;
 window.aiSummary = aiSummary;
 window.render = render;
+window.showTaskDetailModal = showTaskDetailModal;
 </script>
 </body>
 </html>
