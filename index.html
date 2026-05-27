@@ -5075,6 +5075,10 @@ document.getElementById('json-input').addEventListener('change', e => {
 });
 
 /* ---------------- 启动 ---------------- */
+// 全局错误捕获：任何启动期 throw 都打日志，不让单点失败拖垮整个 app
+window.addEventListener('error', e => console.error('[Chronos] uncaught:', e.message, 'at', e.filename + ':' + e.lineno));
+window.addEventListener('unhandledrejection', e => console.error('[Chronos] unhandled rejection:', e.reason));
+
 /* ============== 开屏动画 ============== */
 function makeSpiralPath(cx, cy, startR, endR, turns, steps) {
   // 阿基米德螺旋：r 随 t 线性收缩，theta 顺时针累加（负方向）
@@ -5113,64 +5117,73 @@ function setupSplash() {
   // 自动结束（2.8s 起淡出，0.4s 淡出动画后移除 DOM）
   setTimeout(dismiss, 2800);
 }
-setupSplash();
+// 每个启动步骤都独立 try/catch，单点失败不再拖垮整个 app
+try { setupSplash(); } catch(e) { console.error('[Chronos] setupSplash 失败:', e); }
 
-applyTheme();
-dailyTick();
-render();
-startTimerTick();
+console.log('[Chronos] booting…');
+try { applyTheme(); } catch(e) { console.error('[Chronos] applyTheme 失败:', e); }
+try { dailyTick(); } catch(e) { console.error('[Chronos] dailyTick 失败:', e); }
+try { render(); console.log('[Chronos] 初次 render 完成'); } catch(e) { console.error('[Chronos] render 失败:', e); }
+try { startTimerTick(); } catch(e) { console.error('[Chronos] startTimerTick 失败:', e); }
 
-/* ============== 云同步启动 ============== */
+/* ============== 云同步启动（异步、永不抛出未捕获错误） ============== */
 (async function bootApp() {
-  await bootAuth();
-  if (authStatus === 'unauth') {
-    showAuthOverlay();
-  } else {
-    hideAuthOverlay();
-    if (authStatus === 'cloud') {
-      // 已有 session：拉云端数据 + 启动 realtime（enterCloudMode 内已做）
+  try {
+    await bootAuth();
+    if (authStatus === 'unauth') {
+      showAuthOverlay();
+    } else {
+      hideAuthOverlay();
+      checkMorningPlan();
     }
-    // 早间规划助手：仅在今日有 ≥3 个待办、且今天还没显示过时触发
-    checkMorningPlan();
+    render();
+    console.log('[Chronos] bootApp 完成, authStatus =', authStatus);
+  } catch(e) {
+    console.error('[Chronos] bootApp 失败:', e);
+    // 降级为 guest 模式，保证 UI 可用
+    authStatus = 'guest';
+    try { hideAuthOverlay(); render(); } catch(_) {}
   }
-  render();
 })();
 
-/* 登录页按钮绑定 */
-(function wireAuthPage() {
+/* 登录页按钮绑定 — 元素可能不存在，每个 getElementById 都守卫 */
+try {
   const ov = document.getElementById('auth-overlay');
-  if (!ov) return;
-  const emailIn = document.getElementById('auth-email');
-  const passIn = document.getElementById('auth-password');
-  const errEl = document.getElementById('auth-error');
-  const showErr = msg => { errEl.textContent = msg || ''; };
+  if (ov) {
+    const emailIn = document.getElementById('auth-email');
+    const passIn = document.getElementById('auth-password');
+    const errEl = document.getElementById('auth-error');
+    const btnLogin = document.getElementById('btn-login');
+    const btnReg = document.getElementById('btn-register');
+    const btnGuest = document.getElementById('btn-guest');
+    const showErr = msg => { if (errEl) errEl.textContent = msg || ''; };
 
-  document.getElementById('btn-login').onclick = async () => {
-    showErr('');
-    const email = emailIn.value.trim();
-    const password = passIn.value;
-    if (!email || !password) { showErr('请填邮箱和密码'); return; }
-    const r = await loginWithEmail(email, password);
-    if (r.error) showErr(r.error);
-  };
-  document.getElementById('btn-register').onclick = async () => {
-    showErr('');
-    const email = emailIn.value.trim();
-    const password = passIn.value;
-    if (!email || password.length < 6) { showErr('密码至少 6 位'); return; }
-    const r = await registerWithEmail(email, password);
-    if (r.error) showErr(r.error);
-    else if (r.needsConfirm) showErr('已发送确认邮件，请查收');
-  };
-  document.getElementById('btn-guest').onclick = enterGuestMode;
+    if (btnLogin) btnLogin.onclick = async () => {
+      showErr('');
+      const email = (emailIn && emailIn.value || '').trim();
+      const password = (passIn && passIn.value) || '';
+      if (!email || !password) { showErr('请填邮箱和密码'); return; }
+      const r = await loginWithEmail(email, password);
+      if (r && r.error) showErr(r.error);
+    };
+    if (btnReg) btnReg.onclick = async () => {
+      showErr('');
+      const email = (emailIn && emailIn.value || '').trim();
+      const password = (passIn && passIn.value) || '';
+      if (!email || password.length < 6) { showErr('密码至少 6 位'); return; }
+      const r = await registerWithEmail(email, password);
+      if (r && r.error) showErr(r.error);
+      else if (r && r.needsConfirm) showErr('已发送确认邮件，请查收');
+    };
+    if (btnGuest) btnGuest.onclick = enterGuestMode;
 
-  // 回车提交
-  [emailIn, passIn].forEach(el => el && el.addEventListener('keydown', e => {
-    if (e.key === 'Enter') document.getElementById('btn-login').click();
-  }));
-})();
+    [emailIn, passIn].forEach(el => el && el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && btnLogin) btnLogin.click();
+    }));
+  }
+} catch(e) { console.error('[Chronos] wireAuthPage 失败:', e); }
 
-/* 网络状态监听：恢复在线时自动同步 */
+/* 网络状态监听 */
 window.addEventListener('online', () => {
   if (authStatus === 'cloud') {
     syncStatus = 'syncing'; updateSyncIndicator();
@@ -5192,9 +5205,12 @@ window.addEventListener('offline', () => {
  * 用 refreshing 旗子防止 statechange 和 controllerchange 双重 reload
  * 用 hadController 判断首次安装 vs 更新场景，首次安装不刷新（页面已是最新）
  * ============================================================================ */
-if ('serviceWorker' in navigator) {
-  let refreshing = false;
-  const hadController = !!navigator.serviceWorker.controller;
+// 强化守卫：iOS 私密浏览 / 某些 PWA 上下文里 'serviceWorker' in navigator 为真但 navigator.serviceWorker === undefined
+try {
+  if ('serviceWorker' in navigator && navigator.serviceWorker) {
+    var refreshing = false;
+    var hadController = false;
+    try { hadController = !!navigator.serviceWorker.controller; } catch(_) {}
   const doReload = () => {
     if (refreshing) return;
     refreshing = true;
@@ -5236,7 +5252,8 @@ if ('serviceWorker' in navigator) {
       });
     }
   });
-}
+  }
+} catch(e) { console.error('[Chronos] SW 注册失败:', e); }
 
 /* 暴露给 onclick */
 window.startTimer = startTimer;
