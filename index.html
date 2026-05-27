@@ -1703,6 +1703,161 @@ textarea.api-input {
 }
 .timeline-node[data-gap="none"]::after { display: none; }
 .timeline-node:last-child::after { display: none; }
+
+/* ===================== 推迟功能：左滑操作 / 批量推迟 / 承认现实 ===================== */
+.swipe-wrap {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+}
+.swipe-wrap .task-card {
+  margin-bottom: 0;
+  position: relative;
+  z-index: 1;
+  background: var(--bg-elev);
+  transition: transform 0.25s ease;
+  will-change: transform;
+  touch-action: pan-y;
+}
+.swipe-wrap.swiping .task-card {
+  transition: none;
+}
+.swipe-actions {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: stretch;
+  z-index: 0;
+  pointer-events: none;
+}
+.swipe-wrap.swipe-open .swipe-actions {
+  pointer-events: auto;
+}
+.swipe-action-btn {
+  background: #F0EDE8;
+  color: #7A766F;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  padding: 0 12px;
+  margin-left: 4px;
+  min-width: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+.swipe-action-btn:first-child { margin-left: 0; }
+.swipe-action-btn:hover, .swipe-action-btn:active { background: #E8E3DC; }
+[data-theme="dark"] .swipe-action-btn {
+  background: var(--bg-soft);
+  color: var(--text-soft);
+}
+[data-theme="dark"] .swipe-action-btn:hover, [data-theme="dark"] .swipe-action-btn:active {
+  background: var(--border);
+}
+
+/* 「今天先到这里」底部按钮：极度低调 */
+.day-end-btn {
+  display: block;
+  margin: 24px auto 16px;
+  background: transparent;
+  border: none;
+  color: #7A766F;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.2s ease;
+}
+.day-end-btn:hover { color: var(--text); }
+[data-theme="dark"] .day-end-btn { color: var(--text-soft); }
+
+/* 推迟确认 / 承认现实对话框 */
+.defer-modal h2 {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text);
+  margin: 0 0 16px;
+  letter-spacing: 0.01em;
+}
+.defer-modal .defer-body {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.7;
+  margin-bottom: 14px;
+}
+.defer-modal .defer-urgent-list {
+  background: var(--bg-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--text);
+  max-height: 160px;
+  overflow-y: auto;
+}
+.defer-modal .defer-urgent-list .item {
+  padding: 4px 0;
+  color: var(--text-soft);
+}
+.defer-modal .defer-ai-line {
+  font-size: 12px;
+  color: var(--text-soft);
+  line-height: 1.6;
+  margin-bottom: 4px;
+  min-height: 1.6em;
+  font-style: normal;
+}
+.defer-modal .defer-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+.defer-modal .defer-btn {
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  min-height: 40px;
+  font-family: inherit;
+  transition: opacity 0.2s ease;
+}
+.defer-modal .defer-btn-primary {
+  background: #2B2926;
+  color: #FAF9F6;
+}
+.defer-modal .defer-btn-danger {
+  background: #A66B5D;
+  color: #FFFFFF;
+}
+.defer-modal .defer-btn-ghost {
+  background: transparent;
+  color: #7A766F;
+}
+.defer-modal .defer-btn:hover { opacity: 0.88; }
+[data-theme="dark"] .defer-modal .defer-btn-primary {
+  background: var(--text);
+  color: var(--bg);
+}
+
+.reality-modal .reality-task-name {
+  color: #9B6B3F;
+  font-weight: 500;
+  word-break: break-word;
+}
+[data-theme="dark"] .reality-modal .reality-task-name { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -2905,14 +3060,25 @@ function dailyTick() {
 
   // 滚入：所有 date < today 且未完成的任务 → 移到今天 + rolloverCount += 1
   // 即使 dailyTick 同日内重跑，下次 t.date 已是 today，条件不再满足，不会双计数
+  const _autoRealityTriggers = [];
   state.tasks.forEach(t => {
     if (t.date < today && t.timerState !== 'done') {
       if (!t.originalDate) t.originalDate = t.date;
       t.rolloverCount = (t.rolloverCount || 0) + 1;
       t.rollover = true;
       t.date = today;
+      if (t.rolloverCount === 3 && !t.realityCheckShown) {
+        t.realityCheckShown = true;
+        _autoRealityTriggers.push(t.id);
+      }
     }
   });
+  if (_autoRealityTriggers.length > 0) {
+    // 延迟到 DOM 准备好后再弹（首屏渲染后）
+    setTimeout(() => {
+      if (typeof chainRealityChecks === 'function') chainRealityChecks(_autoRealityTriggers);
+    }, 800);
+  }
 
   // 注入循环任务到未来 8 天
   for (let i = 0; i < 8; i++) {
@@ -5138,16 +5304,433 @@ function renderToday() {
     return;
   }
 
+  const sortedUnfinished = sortTasks(restUnfinished);
+  const _today = todayStr();
+  const deferEligibleCount = sortedUnfinished.filter(t => {
+    if (!isDeferEligible(t)) return false;
+    if (t.priority === 'urgent-important') return false;
+    if (t.deadline && diffDays(_today, t.deadline) <= 3) return false;
+    return true;
+  }).length;
+
   listEl.innerHTML = `
     <div class="task-group">
       <div class="task-group-header">
         <span class="date-label">今天 · ${restUnfinished.length} 项待完成</span>
         <span class="text-xs text-faint">${restDone.length} 已完成</span>
       </div>
-      ${sortTasks(restUnfinished).map(t => taskCardHTML(t)).join('')}
+      ${sortedUnfinished.map(t => taskCardWithSwipeHTML(t)).join('')}
       ${restDone.map(t => taskCardHTML(t)).join('')}
+      ${deferEligibleCount > 0 ? '<button class="day-end-btn" onclick="openBatchDeferPanel()">今天先到这里</button>' : ''}
     </div>
   `;
+
+  attachSwipeHandlers(listEl);
+}
+
+/* ===================== 推迟功能：单个推迟 / 批量推迟 / 承认现实 ===================== */
+
+/* 任务是否可推迟（用于决定是否包裹 swipe-wrap 与批量推迟） */
+function isDeferEligible(t) {
+  if (!t) return false;
+  if (t.isRecur) return false;
+  if (t.timerState === 'done') return false;
+  if (t.date !== todayStr()) return false;
+  return true;
+}
+
+/* 计算下周一日期（如果今天就是周一，则跳到下一个周一） */
+function nextMondayDate() {
+  const today = todayStr();
+  const wd = new Date(today).getDay(); // 0=Sun..6=Sat
+  let days = (1 - wd + 7) % 7;
+  if (days === 0) days = 7;
+  return dateAdd(today, days);
+}
+
+/* 把目标 key 转成日期串 */
+function deferTargetToDate(target) {
+  const today = todayStr();
+  if (target === 'tomorrow') return dateAdd(today, 1);
+  if (target === 'dayAfter') return dateAdd(today, 2);
+  if (target === 'nextMonday') return nextMondayDate();
+  return null;
+}
+
+/* 用 swipe-wrap 包装可推迟的任务卡 */
+function taskCardWithSwipeHTML(t) {
+  const cardHTML = taskCardHTML(t);
+  if (!isDeferEligible(t)) return cardHTML;
+  return `
+    <div class="swipe-wrap" data-swipe-task-id="${t.id}">
+      <div class="swipe-actions">
+        <button type="button" class="swipe-action-btn" data-defer-target="tomorrow" onclick="onSwipeActionClick(event, '${t.id}', 'tomorrow')">明天</button>
+        <button type="button" class="swipe-action-btn" data-defer-target="dayAfter" onclick="onSwipeActionClick(event, '${t.id}', 'dayAfter')">后天</button>
+        <button type="button" class="swipe-action-btn" data-defer-target="nextMonday" onclick="onSwipeActionClick(event, '${t.id}', 'nextMonday')">下周一</button>
+      </div>
+      ${cardHTML}
+    </div>
+  `;
+}
+
+/* 当前展开的 swipe-wrap，全局唯一 */
+let _activeSwipeWrap = null;
+
+function closeActiveSwipe() {
+  if (!_activeSwipeWrap) return;
+  const card = _activeSwipeWrap.querySelector('.task-card');
+  if (card) card.style.transform = '';
+  _activeSwipeWrap.classList.remove('swipe-open');
+  _activeSwipeWrap = null;
+}
+
+/* 触摸/鼠标拖拽 → 实现卡片左滑 */
+function attachSwipeHandlers(root) {
+  if (!root) return;
+  const wraps = root.querySelectorAll('.swipe-wrap');
+  wraps.forEach(wrap => {
+    const card = wrap.querySelector('.task-card');
+    const actions = wrap.querySelector('.swipe-actions');
+    if (!card || !actions) return;
+
+    let startX = 0, startY = 0, dx = 0;
+    let dragging = false;
+    let lockedAxis = null;
+    let actionsWidth = 0;
+    let cardWidth = 0;
+    let baseTx = 0;
+
+    function onStart(clientX, clientY) {
+      // 先关掉其他打开的
+      if (_activeSwipeWrap && _activeSwipeWrap !== wrap) closeActiveSwipe();
+      startX = clientX;
+      startY = clientY;
+      dx = 0;
+      dragging = true;
+      lockedAxis = null;
+      actionsWidth = actions.getBoundingClientRect().width || 200;
+      cardWidth = card.getBoundingClientRect().width || 300;
+      baseTx = wrap.classList.contains('swipe-open') ? -actionsWidth : 0;
+      wrap.classList.add('swiping');
+    }
+
+    function onMove(clientX, clientY, e) {
+      if (!dragging) return;
+      dx = clientX - startX;
+      const dy = clientY - startY;
+
+      if (lockedAxis == null) {
+        if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+          lockedAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        }
+      }
+      if (lockedAxis === 'x') {
+        if (e && e.cancelable) e.preventDefault();
+        let tx = baseTx + dx;
+        // 限制范围：不允许右滑超过 0，左滑不超过 actionsWidth + 20 弹性
+        tx = Math.min(0, Math.max(tx, -actionsWidth - 20));
+        card.style.transform = `translateX(${tx}px)`;
+      } else if (lockedAxis === 'y') {
+        // 垂直滚动放行
+      }
+    }
+
+    function onEnd() {
+      if (!dragging) return;
+      dragging = false;
+      wrap.classList.remove('swiping');
+      if (lockedAxis !== 'x') return;
+      const finalTx = baseTx + dx;
+      const threshold = cardWidth / 3;
+      if (-finalTx > threshold) {
+        card.style.transform = `translateX(${-actionsWidth}px)`;
+        wrap.classList.add('swipe-open');
+        if (_activeSwipeWrap && _activeSwipeWrap !== wrap) closeActiveSwipe();
+        _activeSwipeWrap = wrap;
+      } else {
+        card.style.transform = '';
+        wrap.classList.remove('swipe-open');
+        if (_activeSwipeWrap === wrap) _activeSwipeWrap = null;
+      }
+    }
+
+    card.addEventListener('touchstart', e => {
+      const t = e.touches[0];
+      onStart(t.clientX, t.clientY);
+    }, { passive: true });
+    card.addEventListener('touchmove', e => {
+      const t = e.touches[0];
+      onMove(t.clientX, t.clientY, e);
+    }, { passive: false });
+    card.addEventListener('touchend', onEnd);
+    card.addEventListener('touchcancel', onEnd);
+
+    // 鼠标支持（桌面调试用）
+    card.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      onStart(e.clientX, e.clientY);
+      const mm = ev => onMove(ev.clientX, ev.clientY, ev);
+      const mu = () => {
+        document.removeEventListener('mousemove', mm);
+        document.removeEventListener('mouseup', mu);
+        onEnd();
+      };
+      document.addEventListener('mousemove', mm);
+      document.addEventListener('mouseup', mu);
+    });
+  });
+}
+
+/* 点击外部关闭已展开的 swipe */
+document.addEventListener('click', e => {
+  if (!_activeSwipeWrap) return;
+  if (_activeSwipeWrap.contains(e.target)) return;
+  closeActiveSwipe();
+}, true);
+
+/* 点击滑出按钮 */
+function onSwipeActionClick(e, taskId, target) {
+  if (e) e.stopPropagation();
+  closeActiveSwipe();
+  deferSingleTask(taskId, target);
+}
+
+/* 单个推迟：处理规则 + 紧急确认 + DDL 守门 */
+function deferSingleTask(taskId, target) {
+  const t = state.tasks.find(x => x.id === taskId);
+  if (!t) return;
+  if (t.isRecur) { toast('循环任务不可推迟'); return; }
+
+  const today = todayStr();
+  if (t.deadline) {
+    const dd = diffDays(today, t.deadline);
+    if (dd <= 1) {
+      if (navigator.vibrate) try { navigator.vibrate(30); } catch(_) {}
+      toast('明天就截止了，来不及了 🐌');
+      return;
+    }
+  }
+
+  if (t.priority === 'urgent-important') {
+    showDeferUrgentConfirm(t, target);
+    return;
+  }
+
+  performDefer(t, target);
+}
+
+/* 紧急+重要任务推迟前的确认 */
+function showDeferUrgentConfirm(t, target) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal defer-modal" role="dialog">
+      <h2>这个任务很重要，确定推迟吗？</h2>
+      <div class="defer-body">${escapeHtml(t.desc)}</div>
+      <div class="defer-actions">
+        <button type="button" class="defer-btn defer-btn-ghost" data-act="cancel">取消</button>
+        <button type="button" class="defer-btn defer-btn-primary" data-act="ok">确定推迟</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  backdrop.querySelector('[data-act="cancel"]').onclick = () => backdrop.remove();
+  backdrop.querySelector('[data-act="ok"]').onclick = () => {
+    backdrop.remove();
+    performDefer(t, target);
+  };
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) backdrop.remove(); });
+}
+
+/* 真正执行推迟：修改日期 + rolloverCount +1 + 触发承认现实弹窗（如适用） */
+function performDefer(t, target) {
+  const newDate = deferTargetToDate(target);
+  if (!newDate) return;
+  if (!t.originalDate) t.originalDate = t.date;
+  t.date = newDate;
+  t.rolloverCount = (t.rolloverCount || 0) + 1;
+  t.rollover = true;
+  saveState();
+
+  // rolloverCount 刚变为 3：弹出「也许现在不是时候」（仅一次）
+  if (t.rolloverCount === 3 && !t.realityCheckShown) {
+    t.realityCheckShown = true;
+    saveState();
+    render();
+    showRealityCheck(t.id);
+    return;
+  }
+
+  render();
+  toast(`已推迟到${fmtDate(newDate)}`);
+}
+
+/* 批量推迟：今天先到这里 */
+async function openBatchDeferPanel() {
+  const today = todayStr();
+  const candidates = state.tasks.filter(t => isDeferEligible(t));
+  const moveList = [];
+  const keepList = [];
+  candidates.forEach(t => {
+    if (t.priority === 'urgent-important') { keepList.push(t); return; }
+    if (t.deadline) {
+      const dd = diffDays(today, t.deadline);
+      if (dd <= 3) { keepList.push(t); return; }
+    }
+    moveList.push(t);
+  });
+
+  if (moveList.length === 0) {
+    toast('没有可以推迟的任务');
+    return;
+  }
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  const keepListHTML = keepList.length > 0
+    ? `<div class="defer-urgent-list">${keepList.map(t => `<div class="item">· ${escapeHtml(t.desc)}</div>`).join('')}</div>`
+    : '';
+  backdrop.innerHTML = `
+    <div class="modal defer-modal" role="dialog">
+      <h2>今天先到这里</h2>
+      <div class="defer-body">
+        ${moveList.length} 件任务将移到明天<br>
+        ${keepList.length} 件紧急任务将留下
+      </div>
+      ${keepListHTML}
+      <div class="defer-ai-line" id="defer-ai-line">…</div>
+      <div class="defer-actions">
+        <button type="button" class="defer-btn defer-btn-ghost" data-act="cancel">再想想</button>
+        <button type="button" class="defer-btn defer-btn-primary" data-act="ok">移到明天</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+
+  backdrop.querySelector('[data-act="cancel"]').onclick = () => backdrop.remove();
+  backdrop.querySelector('[data-act="ok"]').onclick = () => {
+    backdrop.remove();
+    performBatchDefer(moveList);
+  };
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) backdrop.remove(); });
+
+  // 异步拉取 AI 一句话（失败时静默显示一个本地回退句子）
+  fetchBatchDeferAILine().then(line => {
+    const el = backdrop.querySelector('#defer-ai-line');
+    if (el) el.textContent = line;
+  }).catch(() => {
+    const el = backdrop.querySelector('#defer-ai-line');
+    if (el) el.textContent = '';
+  });
+}
+
+function performBatchDefer(moveList) {
+  const tomorrow = dateAdd(todayStr(), 1);
+  const realityTriggers = [];
+  moveList.forEach(t => {
+    if (!t.originalDate) t.originalDate = t.date;
+    t.date = tomorrow;
+    t.rolloverCount = (t.rolloverCount || 0) + 1;
+    t.rollover = true;
+    if (t.rolloverCount === 3 && !t.realityCheckShown) {
+      t.realityCheckShown = true;
+      realityTriggers.push(t);
+    }
+  });
+  saveState();
+  render();
+  toast(`已推迟 ${moveList.length} 件任务`);
+  // 多个任务命中第三次推迟，依次弹出（队列化）
+  if (realityTriggers.length > 0) {
+    chainRealityChecks(realityTriggers.map(t => t.id));
+  }
+}
+
+function chainRealityChecks(ids) {
+  if (ids.length === 0) return;
+  const next = ids.shift();
+  showRealityCheck(next, () => chainRealityChecks(ids));
+}
+
+/* 调用千问 API 获取一句话 */
+async function fetchBatchDeferAILine() {
+  const today = todayStr();
+  const doneToday = state.done.filter(t => t.date === today);
+  const n = doneToday.length;
+  const s = doneToday.filter(t => t.cat === 'S').length;
+  const r = doneToday.filter(t => t.cat === 'R').length;
+  const g = doneToday.filter(t => t.cat === 'G').length;
+  const c = doneToday.filter(t => t.cat === 'C').length;
+  const km = Math.round((snailMileage && snailMileage.total) || 0);
+
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    return `今天完成了 ${n} 件任务，蜗牛爬了 ${km} km。`;
+  }
+
+  const prompt = `今天用户完成了${n}件任务，
+分类：S${s}件 R${r}件 G${g}件 C${c}件，
+蜗牛爬了${km}km。
+用一句话陈述今天的情况，15字以内，
+不要评判好坏，不要说加油，语气平静自然，
+可以带一点点蜗牛的意象。`;
+
+  const resp = await fetch(QWEN_URL, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: QWEN_MODEL_TEXT,
+      max_tokens: 80,
+      messages: [
+        { role: 'system', content: '你是一个语气平静自然的写作助手，只输出一句话，不要引号，不要解释。' },
+        { role: 'user', content: prompt }
+      ]
+    })
+  });
+  if (!resp.ok) throw new Error('API ' + resp.status);
+  const data = await resp.json();
+  let txt = (data.choices?.[0]?.message?.content || '').trim();
+  txt = txt.replace(/^["“『「]+|["”』」]+$/g, '').split('\n')[0].trim();
+  if (!txt) txt = `今天完成了 ${n} 件任务，蜗牛爬了 ${km} km。`;
+  return txt;
+}
+
+/* 承认现实：rolloverCount 刚变为 3 时一次性触发 */
+function showRealityCheck(taskId, onClose) {
+  const t = state.tasks.find(x => x.id === taskId);
+  if (!t) { if (onClose) onClose(); return; }
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal defer-modal reality-modal" role="dialog">
+      <h2>也许现在不是时候</h2>
+      <div class="defer-body">
+        这个任务已经推迟 3 次了<br>
+        <span class="reality-task-name">${escapeHtml(t.desc)}</span>
+      </div>
+      <div class="defer-actions">
+        <button type="button" class="defer-btn defer-btn-ghost" data-act="again">再推一次</button>
+        <button type="button" class="defer-btn defer-btn-danger" data-act="delete">删掉它</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+
+  function close() {
+    backdrop.remove();
+    if (onClose) onClose();
+  }
+
+  backdrop.querySelector('[data-act="delete"]').onclick = () => {
+    deleteTask(t.id);
+    close();
+  };
+  backdrop.querySelector('[data-act="again"]').onclick = () => {
+    // 已经在本次推迟里 +1 了，"再推一次" 表示用户接受继续累加并保留当前结果
+    close();
+  };
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
 }
 
 function handleSchedule(text) {
