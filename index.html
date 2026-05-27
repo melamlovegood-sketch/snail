@@ -493,6 +493,79 @@ h3 {
 }
 .undo-banner .msg { flex: 1; min-width: 0; font-size: 13px; color: var(--text); line-height: 1.5; }
 
+/* ===================== 今日专注 ===================== */
+.focus-block {
+  border: 1px solid #9B6B3F;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+  background: var(--bg-elev);
+}
+.focus-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding: 0 2px;
+}
+.focus-title {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif;
+  font-size: 16px;
+  font-weight: 500;
+  color: #2B2926;
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+.focus-count {
+  font-size: 12px;
+  color: #7A766F;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.focus-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0 6px 0;
+}
+.focus-empty-text {
+  color: #7A766F;
+  font-size: 14px;
+  text-align: center;
+}
+.focus-smart-btn {
+  background: transparent;
+  border: 1px solid #9B6B3F;
+  color: #9B6B3F;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.25s ease;
+  min-height: 0;
+}
+.focus-smart-btn:hover {
+  background: rgba(155,107,63,0.08);
+}
+.focus-hint {
+  margin-top: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: #B8B3AB;
+  letter-spacing: 0.02em;
+  padding: 0 8px;
+}
+/* 专注块内的任务卡片：边框去掉避免双重描边，加 📌 active 颜色 */
+.focus-block .task-card {
+  border-color: var(--border-soft);
+}
+.focus-block .task-card .icon-btn.pin-active {
+  color: #9B6B3F;
+}
+.icon-btn.pin-active { color: #9B6B3F; }
+
 /* 截图导入：分组多选 */
 .import-group { margin-bottom: 18px; }
 .import-group:last-child { margin-bottom: 0; }
@@ -1393,6 +1466,8 @@ let chatLoading = false;
 let morningPlan = null;   // { advice, order, noKey?, loading? } —— 当日内存态
 let lastOperation = null; // { snapshot, summary, ts } —— 上次自然语言操作的撤销快照
 let checkInMode = false;  // 助手 tab 是否进入"今日复盘"模式
+let focusPins = [];       // 今日专注的任务 id 列表（最多 3 个）
+let focusHintSeen = false; // 是否已展示过首次引导（一次性）
 
 /* ============== Supabase 云同步 ============== */
 const SUPABASE_URL = 'https://ckwcobbuserktcjrmgly.supabase.co';
@@ -1506,6 +1581,108 @@ function getApiKey() {
   if (state.userApiKey && state.userApiKey.trim()) return state.userApiKey.trim();
   if (QWEN_API_KEY && QWEN_API_KEY !== 'YOUR_API_KEY_HERE') return QWEN_API_KEY;
   return '';
+}
+
+/* ---------------- 今日专注 ---------------- */
+function loadFocusPins() {
+  let raw;
+  try { raw = localStorage.getItem('snail_focus_pins'); } catch(_) { raw = null; }
+  if (!raw) {
+    focusPins = [];
+    focusHintSeen = false; // 第一次进入 app，显示引导
+    return;
+  }
+  focusHintSeen = true;
+  try {
+    const obj = JSON.parse(raw);
+    if (obj && obj.date === todayStr() && Array.isArray(obj.pinnedIds)) {
+      focusPins = obj.pinnedIds.slice(0, 3);
+    } else {
+      focusPins = []; // 跨日重置 pin，但 hintSeen 保持
+    }
+  } catch(_) {
+    focusPins = [];
+  }
+}
+function saveFocusPins() {
+  try {
+    localStorage.setItem('snail_focus_pins', JSON.stringify({
+      date: todayStr(),
+      pinnedIds: focusPins
+    }));
+    focusHintSeen = true;
+  } catch(_) {}
+}
+function addToFocus(taskId) {
+  if (focusPins.includes(taskId)) return;
+  if (focusPins.length >= 3) { toast('今天已有3个专注任务，先完成一个吧 🐌'); return; }
+  focusPins.push(taskId);
+  saveFocusPins();
+  render();
+}
+function removeFromFocus(taskId) {
+  focusPins = focusPins.filter(id => id !== taskId);
+  saveFocusPins();
+  render();
+}
+function togglePin(taskId) {
+  if (focusPins.includes(taskId)) removeFromFocus(taskId);
+  else addToFocus(taskId);
+}
+function smartRecommendFocus() {
+  const today = todayStr();
+  const todayTasks = state.tasks.filter(t => t.date === today);
+  if (todayTasks.length === 0) { toast('今天还没有任务'); return; }
+  const order = { 'urgent-important': 0, 'urgent-unimportant': 1, 'important': 2, 'normal': 3 };
+  const sorted = todayTasks.slice().sort((a, b) => {
+    const pa = order[a.priority] ?? 9, pb = order[b.priority] ?? 9;
+    if (pa !== pb) return pa - pb;
+    const ta = a.startTime || '~', tb = b.startTime || '~';
+    return ta.localeCompare(tb);
+  });
+  focusPins = sorted.slice(0, 3).map(t => t.id);
+  saveFocusPins();
+  render();
+  toast(`已为你挑选 ${focusPins.length} 件最值得专注的事`);
+}
+
+function renderFocusBlock() {
+  const today = todayStr();
+  const todayAll = [...state.tasks, ...state.done].filter(t => t.date === today);
+  // pinnedIds 按 focusPins 顺序解析为真实 task 对象，过滤掉已经不存在的
+  const pinnedTasks = focusPins.map(id => todayAll.find(t => t.id === id)).filter(Boolean);
+  // 清理已不存在的 id（如被删除）
+  if (pinnedTasks.length !== focusPins.length) {
+    focusPins = pinnedTasks.map(t => t.id);
+    saveFocusPins();
+  }
+  const empty = pinnedTasks.length === 0;
+  const showHint = !focusHintSeen && empty;
+
+  return `
+    <div class="focus-block">
+      <div class="focus-head">
+        <h3 class="focus-title">今日专注</h3>
+        ${pinnedTasks.length > 0 ? `<span class="focus-count">${pinnedTasks.length}/3</span>` : ''}
+      </div>
+      ${empty ? `
+        <div class="focus-empty">
+          <div class="focus-empty-text">今天想专注什么？</div>
+          <button class="focus-smart-btn" onclick="smartRecommendFocus()">✦ 智能推荐</button>
+        </div>
+      ` : pinnedTasks.map(t => focusCardHTML(t)).join('')}
+      ${showHint ? `<div class="focus-hint">每天选 3 件最重要的事，其余的慢慢来 🐌</div>` : ''}
+    </div>
+  `;
+}
+
+function focusCardHTML(t) {
+  // 复用 taskCardHTML，注入 📌 取消按钮到 task-actions 开头
+  const html = taskCardHTML(t);
+  return html.replace(
+    '<div class="task-actions" onclick="event.stopPropagation()">',
+    `<div class="task-actions" onclick="event.stopPropagation()"><button class="icon-btn pin-active" onclick="removeFromFocus('${t.id}')" title="取消今日专注">📌</button>`
+  );
 }
 
 /* ============================================================
@@ -2857,6 +3034,14 @@ function toggleComplete(taskId) {
     state.done.push(t);
     // 完成的任务在云端软删除（next 同步周期 done 不再上推）
     cloudSoftDelete(t.id);
+    // 如果是专注任务，延迟 800ms 移出专注区块（保留完成动效）
+    if (focusPins.includes(t.id)) {
+      setTimeout(() => {
+        focusPins = focusPins.filter(id => id !== t.id);
+        saveFocusPins();
+        render();
+      }, 800);
+    }
   } else {
     idx = state.done.findIndex(t => t.id === taskId);
     if (idx >= 0) {
@@ -2969,6 +3154,7 @@ function showTaskDetailModal(taskId) {
 
     <div class="modal-actions">
       <button class="btn-secondary" id="td-decompose" style="margin-right:auto">✦ AI 拆解任务</button>
+      ${t.date === todayStr() ? `<button class="btn-secondary" id="td-focus">${focusPins.includes(t.id) ? '📌 取消专注' : '📌 加入今日专注'}</button>` : ''}
       <button class="btn-secondary" id="td-cancel">取消</button>
       <button class="btn-primary" id="td-save">保存</button>
     </div>
@@ -2980,6 +3166,11 @@ function showTaskDetailModal(taskId) {
   modal.querySelector('#td-decompose').onclick = () => {
     backdrop.remove();
     decomposeTask(t.id);
+  };
+  const focusBtn = modal.querySelector('#td-focus');
+  if (focusBtn) focusBtn.onclick = () => {
+    backdrop.remove();
+    togglePin(t.id);
   };
 
   // chip 单选
@@ -3970,6 +4161,7 @@ function renderToday() {
   const todayDone = state.done.filter(t => t.date === today);
 
   main.innerHTML = `
+    ${renderFocusBlock()}
     <div class="input-bar">
       <input id="schedule-input" placeholder="排日程：例 schedule 1800-2300 或 排到23点" autocomplete="off">
       <button class="btn-primary" id="export-today" style="white-space:nowrap">导出</button>
@@ -3986,9 +4178,14 @@ function renderToday() {
   });
   main.querySelector('#export-today').onclick = exportTodayICS;
 
-  const all = [...todayTasks, ...todayDone];
+  // 普通列表过滤掉已 pin 到专注的任务（避免重复）
+  const pinSet = new Set(focusPins);
+  const restUnfinished = todayTasks.filter(t => !pinSet.has(t.id));
+  const restDone = todayDone.filter(t => !pinSet.has(t.id));
+  const allRest = [...restUnfinished, ...restDone];
   const listEl = main.querySelector('#today-list');
-  if (all.length === 0) {
+
+  if (allRest.length === 0 && focusPins.length === 0) {
     listEl.innerHTML = `
       <div class="empty">
         <div class="big">◷</div>
@@ -4004,14 +4201,20 @@ function renderToday() {
     return;
   }
 
+  if (allRest.length === 0) {
+    // 所有任务都在专注块里，下面不显示重复列表
+    listEl.innerHTML = '';
+    return;
+  }
+
   listEl.innerHTML = `
     <div class="task-group">
       <div class="task-group-header">
-        <span class="date-label">今天 · ${todayTasks.length} 项待完成</span>
-        <span class="text-xs text-faint">${todayDone.length} 已完成</span>
+        <span class="date-label">今天 · ${restUnfinished.length} 项待完成</span>
+        <span class="text-xs text-faint">${restDone.length} 已完成</span>
       </div>
-      ${sortTasks(todayTasks).map(t => taskCardHTML(t)).join('')}
-      ${todayDone.map(t => taskCardHTML(t)).join('')}
+      ${sortTasks(restUnfinished).map(t => taskCardHTML(t)).join('')}
+      ${restDone.map(t => taskCardHTML(t)).join('')}
     </div>
   `;
 }
@@ -5126,6 +5329,7 @@ try { setupSplash(); } catch(e) { console.error('[Chronos] setupSplash 失败:',
 console.log('[Chronos] booting…');
 try { applyTheme(); } catch(e) { console.error('[Chronos] applyTheme 失败:', e); }
 try { dailyTick(); } catch(e) { console.error('[Chronos] dailyTick 失败:', e); }
+try { loadFocusPins(); } catch(e) { console.error('[Chronos] loadFocusPins 失败:', e); }
 try { render(); console.log('[Chronos] 初次 render 完成'); } catch(e) { console.error('[Chronos] render 失败:', e); }
 try { startTimerTick(); } catch(e) { console.error('[Chronos] startTimerTick 失败:', e); }
 
@@ -5284,6 +5488,9 @@ window.startCheckIn = startCheckIn;
 window.manualSync = manualSync;
 window.logoutCloud = logoutCloud;
 window.showAuthOverlay = showAuthOverlay;
+window.smartRecommendFocus = smartRecommendFocus;
+window.removeFromFocus = removeFromFocus;
+window.togglePin = togglePin;
 </script>
 </body>
 </html>
