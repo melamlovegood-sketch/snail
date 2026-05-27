@@ -255,22 +255,24 @@ h3 { font-size: 17px; font-weight: 600; margin: 0; }
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
-  flex-wrap: wrap;
+  margin-bottom: 6px;
 }
 .task-desc {
   font-size: 15px;
   font-weight: 500;
   color: var(--text);
   word-break: break-word;
+  flex: 1;            /* 占满 row1 剩余宽度 */
+  min-width: 0;       /* 允许收缩并正常断词 */
 }
 .task-row2 {
   display: flex;
   align-items: center;
   gap: 8px;
+  row-gap: 6px;
   font-size: 12px;
   color: var(--text-soft);
-  flex-wrap: wrap;
+  flex-wrap: wrap;    /* 计时器宽时自动换行到下一行 */
 }
 .cat-tag {
   display: inline-flex;
@@ -333,11 +335,13 @@ h3 { font-size: 17px; font-weight: 600; margin: 0; }
 
 /* ===================== 计时器 ===================== */
 .timer-area {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  margin-left: auto;   /* 推到 row2 最右；空间不够时整体换行到下一行 */
 }
+.timer-area:empty { display: none; }   /* 没计时按钮时不占位 */
 .timer-display {
   font-size: 13px;
   font-weight: 600;
@@ -361,8 +365,9 @@ h3 { font-size: 17px; font-weight: 600; margin: 0; }
 .timer-btn.running { background: var(--accent); color: var(--accent-text); }
 .task-actions {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   align-items: center;
+  flex-shrink: 0;     /* row1 永远不被压缩，desc 拿到剩余宽度 */
 }
 .icon-btn {
   width: 32px; height: 32px;
@@ -2254,11 +2259,16 @@ function taskCardHTML(t, opts={}) {
 
   return `
     <div class="task-card ${isDone ? 'done' : ''}">
-      <button class="complete-btn" onclick="toggleComplete('${t.id}')" title="${isDone ? '取消完成' : '标记完成'}"></button>
+      <button class="complete-btn" onclick="event.stopPropagation(); toggleComplete('${t.id}')" title="${isDone ? '取消完成' : '标记完成'}"></button>
       <span class="pri-dot pri-${t.priority}" onclick="event.stopPropagation(); showPriorityPicker('${t.id}', this)" title="点击修改优先级"></span>
       <div class="task-main" onclick="showTaskDetailModal('${t.id}')" title="点击查看详情">
         <div class="task-row1">
           <span class="task-desc">${escapeHtml(t.desc)}</span>
+          <div class="task-actions" onclick="event.stopPropagation()">
+            <button class="icon-btn ${t.favoriteId ? 'is-fav' : ''}" onclick="favoriteTask('${t.id}')" title="${t.favoriteId ? '取消收藏' : '收藏'}">${t.favoriteId ? '★' : '☆'}</button>
+            <button class="icon-btn" onclick="exportTaskICS('${t.id}')" title="导出日历">⤓</button>
+            <button class="icon-btn" onclick="deleteTask('${t.id}')" title="删除">✕</button>
+          </div>
         </div>
         <div class="task-row2">
           ${t.startTime ? `<span class="time-tag" title="开始时间">◷ ${t.startTime}</span>` : ''}
@@ -2267,13 +2277,8 @@ function taskCardHTML(t, opts={}) {
           ${deadlineTag(t.deadline)}
           ${t.rollover ? '<span class="rollover-tag">滚入</span>' : ''}
           ${t.isRecur ? '<span class="recur-tag">↻ 循环</span>' : ''}
+          <div class="timer-area" onclick="event.stopPropagation()">${timerHTML}</div>
         </div>
-      </div>
-      <div class="timer-area">${timerHTML}</div>
-      <div class="task-actions">
-        <button class="icon-btn ${t.favoriteId ? 'is-fav' : ''}" onclick="favoriteTask('${t.id}')" title="${t.favoriteId ? '取消收藏' : '收藏'}">${t.favoriteId ? '★' : '☆'}</button>
-        <button class="icon-btn" onclick="exportTaskICS('${t.id}')" title="导出日历">⤓</button>
-        <button class="icon-btn" onclick="deleteTask('${t.id}')" title="删除">✕</button>
       </div>
     </div>
   `;
