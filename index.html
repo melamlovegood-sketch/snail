@@ -2111,6 +2111,15 @@ function fmtTimer(ms) {
  *   作为应急备份，主键暂时回退到默认状态，便于用户继续使用。
  * - importData 也会先把现有数据备份到 chronos_state_backup_* 再覆盖。
  */
+// 计时字段补齐：老版本数据可能缺 timerState/timerStart/timerPaused，
+// 导致 taskCardHTML 里 `t.timerState === 'idle'` 判定失败 → 不显示播放按钮
+function normalizeTaskTimer(t, isDoneArr) {
+  if (t.timerState !== 'running' && t.timerState !== 'paused' && t.timerState !== 'done') {
+    t.timerState = isDoneArr ? 'done' : (t.durActual != null ? 'done' : 'idle');
+  }
+  if (t.timerStart === undefined) t.timerStart = null;
+  if (t.timerPaused === undefined) t.timerPaused = 0;
+}
 function loadState() {
   let raw;
   try {
@@ -2124,7 +2133,10 @@ function loadState() {
     const s = JSON.parse(raw);
     if (!s || typeof s !== 'object') throw new Error('state 不是对象');
     // 浅合并：新版本新增的字段自动获得默认值，已有用户数据完整保留
-    return { ...JSON.parse(JSON.stringify(DEFAULT_STATE)), ...s };
+    const merged = { ...JSON.parse(JSON.stringify(DEFAULT_STATE)), ...s };
+    if (Array.isArray(merged.tasks)) merged.tasks.forEach(t => normalizeTaskTimer(t, false));
+    if (Array.isArray(merged.done)) merged.done.forEach(t => normalizeTaskTimer(t, true));
+    return merged;
   } catch(e) {
     console.error('[Chronos] chronos_state 解析失败，已备份到 chronos_state_corrupted_*', e);
     try {
@@ -3991,7 +4003,16 @@ function stopTimer(taskId) {
   let elapsed = 0;
   if (t.timerState === 'running') elapsed = Date.now() - t.timerStart;
   else if (t.timerState === 'paused') elapsed = t.timerPaused;
-  t.durActual = Math.max(1, Math.round(elapsed / 60000));
+  // 不足 60s 视为误点（点开播放又秒停），重置回 idle，不污染 durActual
+  if (elapsed < 60000) {
+    t.timerStart = null;
+    t.timerPaused = 0;
+    t.timerState = 'idle';
+    saveState();
+    render();
+    return;
+  }
+  t.durActual = Math.round(elapsed / 60000);
   t.timerState = 'done';
   saveState();
   render();
@@ -4023,7 +4044,8 @@ function toggleComplete(taskId) {
     // 如果计时未停止，自动结束
     if (t.timerState === 'running' || t.timerState === 'paused') {
       let elapsed = t.timerState === 'running' ? Date.now() - t.timerStart : t.timerPaused;
-      t.durActual = Math.max(1, Math.round(elapsed / 60000));
+      // 计时不足 60s 视为未真正使用计时器，按计划时长记录，避免出现 "1h30m → 1分钟" 这种异常显示
+      t.durActual = elapsed >= 60000 ? Math.round(elapsed / 60000) : (t.durActual != null ? t.durActual : t.durPlan);
     } else if (t.durActual == null) {
       t.durActual = t.durPlan;
     }
