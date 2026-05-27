@@ -1,0 +1,15 @@
+{
+  "name": "daily-planner",
+  "version": "1.0.0",
+  "description": "个人时间管理 PWA — 纯前端单页应用",
+  "private": true,
+  "scripts": {
+    "bump": "node bump-version.js",
+    "predeploy": "node bump-version.js",
+    "start": "python -m http.server 8080"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/melamlovegood-sketch/daily-planner.git"
+  }
+}

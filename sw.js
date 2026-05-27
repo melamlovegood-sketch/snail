@@ -1,38 +1,24 @@
 // ============================================================
 // Service Worker — Daily Planner
 //
-// 用户无感更新流程：
-//   1. 修改任何静态资源后，把 CACHE_VERSION 改成新日期串
-//      （部署脚本里可以 sed 替换 __BUILD_TIME__，手动改也行）
-//   2. push 到仓库
-//   3. 用户下次打开 app：
-//      新 SW 自动 install → skipWaiting → activate
-//      → 清掉所有旧版本缓存 → clients.claim() 接管页面
-//      → 主线程监听到 controllerchange → 静默刷新一次
-//      → 用户看到新版本，localStorage 完全保留
+// 部署流程：
+//   1. 修改任何文件
+//   2. `node bump-version.js` 或 `npm run bump` 把 CACHE_VERSION 自动改成当前时间戳
+//   3. push 到仓库
+//   4. 用户下次打开 app：新 SW 自动 install + skipWaiting + activate
+//      → 清除所有旧缓存 → controllerchange → 主线程自动 reload
+//      → 看到最新版本，localStorage 完全保留
 //
-// 缓存策略：全量 Network First
-//   先尝试网络，失败回退缓存。在线时永远最新，离线时退化到上次缓存的内容。
+// 缓存策略：
+//   - index.html / 导航请求：永远从网络拿，不读不写缓存（彻底杜绝 stale HTML）
+//   - 其它静态资源：Network First — 先网络拿最新，失败回退缓存（离线兜底）
+//   - 通义千问 API：完全不走 SW，直通
 // ============================================================
-const CACHE_VERSION = '2026.05.27.2';
+const CACHE_VERSION = '2026.05.27.123529';  // ← 由 bump-version.js 自动注入
 const CACHE_NAME = `daily-planner-${CACHE_VERSION}`;
 
-const PRECACHE = [
-  './',
-  './index.html',
-  './manifest.json',
-  './icon.svg',
-  'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js'
-];
-
 self.addEventListener('install', e => {
-  // 预缓存失败不阻塞激活，下次 fetch 会自动补回
-  e.waitUntil(
-    caches.open(CACHE_NAME).then(cache =>
-      cache.addAll(PRECACHE).catch(err => console.warn('[SW] precache partial fail:', err))
-    )
-  );
-  // 新 SW 立即跳过 waiting 进入 activate
+  // 立即跳过 waiting 进入 activate，不等待现有 SW 闲下来
   self.skipWaiting();
 });
 
@@ -41,30 +27,52 @@ self.addEventListener('activate', e => {
     caches.keys()
       .then(keys =>
         Promise.all(
+          // 清除所有非当前版本的缓存（旧版本痕迹一律清掉）
           keys.filter(k => k !== CACHE_NAME).map(k => {
             console.log('[SW] 清理旧缓存:', k);
             return caches.delete(k);
           })
         )
       )
-      .then(() => self.clients.claim())  // 立即接管现有页面，触发 controllerchange
+      .then(() => self.clients.claim())  // 立即接管现有页面 → 触发 controllerchange
   );
 });
 
 self.addEventListener('fetch', e => {
   const url = e.request.url;
 
-  // 通义千问 API：完全不走 SW
+  // 通义千问 API：完全直通
   if (url.includes('dashscope.aliyuncs.com')) return;
 
-  // 非 GET 请求不缓存
+  // 非 GET 请求一律不缓存
   if (e.request.method !== 'GET') return;
 
-  // Network First：先网络后缓存
+  // 判断是否是 HTML / 导航请求
+  const isHTML =
+    e.request.mode === 'navigate' ||
+    e.request.destination === 'document' ||
+    /\/(index\.html)?(\?|$)/.test(new URL(url).pathname + (new URL(url).search || ''));
+
+  // ============== HTML：永远从网络拿，绝不缓存 ==============
+  if (isHTML) {
+    e.respondWith(
+      fetch(e.request, { cache: 'no-store' }).catch(() =>
+        // 仅在离线且没有任何缓存时返回简单兜底页（防止白屏）
+        caches.match(e.request).then(c =>
+          c || new Response(
+            '<!doctype html><meta charset=utf-8><title>离线</title><style>body{font-family:-apple-system,sans-serif;padding:40px;text-align:center;color:#666}</style><h2>离线</h2><p>请检查网络后重试</p>',
+            { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+          )
+        )
+      )
+    );
+    return;
+  }
+
+  // ============== 其它资源：Network First + 离线缓存兜底 ==============
   e.respondWith(
     fetch(e.request)
       .then(resp => {
-        // 只缓存成功的 200 响应（不缓存 opaque/3xx/4xx/5xx）
         if (resp && resp.status === 200) {
           const clone = resp.clone();
           caches.open(CACHE_NAME).then(c => c.put(e.request, clone));

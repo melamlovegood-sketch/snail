@@ -6,6 +6,10 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
+<!-- 禁止浏览器/中间代理缓存 index.html，确保 PWA 部署后用户拿到最新版本 -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="apple-touch-icon" href="icon.svg">
@@ -3400,27 +3404,38 @@ dailyTick();
 render();
 startTimerTick();
 
-/* ===================== Service Worker 注册 + 自动更新刷新 =====================
- * 流程：新 SW push 上线 → 用户访问 → register('sw.js') 拉取最新 sw.js →
- *      浏览器比对 byte 不同 → install (skipWaiting) → activate (clients.claim)
- *      → controller 切换 → 触发本页 controllerchange → 自动刷新一次
- *      → 用户看到新版本，全程无感，localStorage 数据完整保留
+/* ===================== Service Worker 注册 + 强制更新检测 =====================
+ * 每次 push 后用户下次打开 app：
+ *   1. register('sw.js') → 浏览器拉最新 sw.js
+ *   2. reg.update() 立即检查更新
+ *   3. 字节不同 → install (skipWaiting) → activated → controllerchange
+ *   4. 自动 reload → 用户看到最新版本，localStorage 完整保留
+ * 用 refreshing 旗子防止 statechange 和 controllerchange 双重 reload
+ * 用 hadController 判断首次安装 vs 更新场景，首次安装不刷新（页面已是最新）
  * ============================================================================ */
 if ('serviceWorker' in navigator) {
+  let refreshing = false;
+  const hadController = !!navigator.serviceWorker.controller;
+  const doReload = () => {
+    if (refreshing) return;
+    refreshing = true;
+    console.log('[App] 新版本已激活，自动刷新');
+    window.location.reload();
+  };
+
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js')
       .then(reg => {
-        // 显式检查是否有新版本可用：每次 page focus 时拉一下 sw.js 看有没有更新
+        // 立即检查是否有新版本
         reg.update().catch(() => {});
-        // 一旦后台发现新 SW，触发 skipWaiting 直接激活
+        // 监听新 SW 出现并激活
         reg.addEventListener('updatefound', () => {
           const nw = reg.installing;
           if (!nw) return;
           nw.addEventListener('statechange', () => {
-            if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-              // 已经存在 controller，说明这是更新场景 —— 触发立即激活
-              // 在 sw.js 里 install 末尾已经调用了 skipWaiting()，这里是兜底
-              console.log('[App] 检测到新版 SW，准备激活');
+            // activated 状态触发刷新；仅在更新场景（已有 controller）才刷
+            if (nw.state === 'activated' && hadController) {
+              doReload();
             }
           });
         });
@@ -3428,19 +3443,13 @@ if ('serviceWorker' in navigator) {
       .catch(err => console.warn('SW register failed:', err));
   });
 
-  // 关键：只有"页面初始加载时已有 controller"才注册自动刷新监听
-  // 否则首次安装 PWA 时 clients.claim 也会触发 controllerchange，造成无意义刷新
-  if (navigator.serviceWorker.controller) {
-    let refreshing = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (refreshing) return;
-      refreshing = true;
-      console.log('[App] 新版本已激活，刷新页面');
-      window.location.reload();
-    });
+  // controllerchange：新 SW 接管页面时也触发；同样仅更新场景才刷
+  // refreshing 旗子和 doReload 函数共享，避免和 statechange 冲突
+  if (hadController) {
+    navigator.serviceWorker.addEventListener('controllerchange', doReload);
   }
 
-  // 用户切回页面时（visibility 可见），主动检查更新
+  // 用户从后台切回 app 时主动检查更新
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       navigator.serviceWorker.getRegistration().then(reg => {
