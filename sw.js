@@ -14,7 +14,7 @@
 //   - 其它静态资源：Network First — 先网络拿最新，失败回退缓存（离线兜底）
 //   - 通义千问 API：完全不走 SW，直通
 // ============================================================
-const CACHE_VERSION = '2026.05.27.131815';  // ← 由 bump-version.js 自动注入
+const CACHE_VERSION = '2026.05.27.132706';  // ← 由 bump-version.js 自动注入
 const CACHE_NAME = `daily-planner-${CACHE_VERSION}`;
 
 self.addEventListener('install', e => {
@@ -43,6 +43,9 @@ self.addEventListener('fetch', e => {
 
   // 通义千问 API：完全直通
   if (url.includes('dashscope.aliyuncs.com')) return;
+
+  // Supabase：REST/Realtime/Auth 全部直通，绝不缓存
+  if (url.includes('supabase.co')) return;
 
   // 非 GET 请求一律不缓存
   if (e.request.method !== 'GET') return;
