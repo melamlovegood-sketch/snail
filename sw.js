@@ -1,14 +1,23 @@
 // ============================================================
 // Service Worker — Daily Planner
-// ⚠️  每次更新 index.html / manifest / icon 后，请递增 CACHE_VERSION。
-//     activate 阶段会自动清除所有旧版本缓存。
-//     localStorage 用户数据由主线程管理，本 SW 永远不接触，因此版本
-//     升级 / 缓存清理对用户任务数据零影响。
+//
+// 用户无感更新流程：
+//   1. 修改任何静态资源后，把 CACHE_VERSION 改成新日期串
+//      （部署脚本里可以 sed 替换 __BUILD_TIME__，手动改也行）
+//   2. push 到仓库
+//   3. 用户下次打开 app：
+//      新 SW 自动 install → skipWaiting → activate
+//      → 清掉所有旧版本缓存 → clients.claim() 接管页面
+//      → 主线程监听到 controllerchange → 静默刷新一次
+//      → 用户看到新版本，localStorage 完全保留
+//
+// 缓存策略：全量 Network First
+//   先尝试网络，失败回退缓存。在线时永远最新，离线时退化到上次缓存的内容。
 // ============================================================
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = '2026.05.27.2';
 const CACHE_NAME = `daily-planner-${CACHE_VERSION}`;
 
-const ASSETS = [
+const PRECACHE = [
   './',
   './index.html',
   './manifest.json',
@@ -17,68 +26,51 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
+  // 预缓存失败不阻塞激活，下次 fetch 会自动补回
   e.waitUntil(
     caches.open(CACHE_NAME).then(cache =>
-      cache.addAll(ASSETS).catch(err => console.warn('Cache addAll partial fail:', err))
+      cache.addAll(PRECACHE).catch(err => console.warn('[SW] precache partial fail:', err))
     )
   );
-  // 新 SW 立即接管，旧 SW 不再服务
+  // 新 SW 立即跳过 waiting 进入 activate
   self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => {
-          console.log('[SW] 清理旧缓存:', k);
-          return caches.delete(k);
-        })
+    caches.keys()
+      .then(keys =>
+        Promise.all(
+          keys.filter(k => k !== CACHE_NAME).map(k => {
+            console.log('[SW] 清理旧缓存:', k);
+            return caches.delete(k);
+          })
+        )
       )
-    ).then(() => self.clients.claim())
+      .then(() => self.clients.claim())  // 立即接管现有页面，触发 controllerchange
   );
 });
 
 self.addEventListener('fetch', e => {
   const url = e.request.url;
 
-  // 通义千问 API：完全不走缓存
+  // 通义千问 API：完全不走 SW
   if (url.includes('dashscope.aliyuncs.com')) return;
 
-  // HTML / 导航请求：网络优先 — 在线时永远拿最新版本，离线回退缓存
-  // 这样代码更新后用户下次访问立刻生效，不必等用户手动清缓存
-  const isHTML = e.request.mode === 'navigate' ||
-                 (e.request.method === 'GET' &&
-                  (e.request.headers.get('accept') || '').includes('text/html'));
+  // 非 GET 请求不缓存
+  if (e.request.method !== 'GET') return;
 
-  if (isHTML) {
-    e.respondWith(
-      fetch(e.request)
-        .then(resp => {
-          if (resp && resp.status === 200) {
-            const clone = resp.clone();
-            caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
-          }
-          return resp;
-        })
-        .catch(() => caches.match(e.request))
-    );
-    return;
-  }
-
-  // 其它静态资源：缓存优先 + 后台静默刷新
+  // Network First：先网络后缓存
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      const fetchPromise = fetch(e.request)
-        .then(resp => {
-          if (resp && resp.status === 200 && e.request.method === 'GET') {
-            const clone = resp.clone();
-            caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
-          }
-          return resp;
-        })
-        .catch(() => cached);
-      return cached || fetchPromise;
-    })
+    fetch(e.request)
+      .then(resp => {
+        // 只缓存成功的 200 响应（不缓存 opaque/3xx/4xx/5xx）
+        if (resp && resp.status === 200) {
+          const clone = resp.clone();
+          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+        }
+        return resp;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
