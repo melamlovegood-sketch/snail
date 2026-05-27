@@ -144,7 +144,7 @@ h3 {
 .header {
   padding: 4px 0 32px 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -1545,6 +1545,164 @@ textarea.api-input {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ===================== 蜗牛状态（header 内）===================== */
+.header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.snail-status {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.snail-status svg {
+  width: 32px;
+  height: 32px;
+  display: block;
+}
+.snail-status .snail-svg {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  opacity: 1;
+  transform: scale(1);
+  transform-origin: center;
+}
+.snail-status .snail-svg.exiting {
+  opacity: 0;
+}
+.snail-status .snail-svg.entering {
+  opacity: 0;
+  transform: scale(0.95);
+}
+.snail-status .snail-svg.entering.active {
+  opacity: 1;
+  transform: scale(1);
+}
+.snail-status .bloom-flower {
+  transform-origin: center;
+  animation: bloom-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.snail-status .bloom-flower.f1 { animation-delay: 0.05s; }
+.snail-status .bloom-flower.f2 { animation-delay: 0.18s; }
+.snail-status .bloom-flower.f3 { animation-delay: 0.30s; }
+@keyframes bloom-pop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+/* ===================== 蜗牛旅程（统计页顶部）===================== */
+.snail-journey {
+  background: var(--bg-elev);
+  border-radius: var(--radius-lg);
+  padding: 18px 16px 14px 16px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+}
+.snail-journey-mileage {
+  font-family: 'Noto Serif SC', 'Songti SC', 'STSong', serif;
+  font-size: 20px;
+  color: #2B2926;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+[data-theme="dark"] .snail-journey-mileage { color: var(--text); }
+.snail-journey-mileage .num {
+  color: #9B6B3F;
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 4px;
+}
+[data-theme="dark"] .snail-journey-mileage .num { color: var(--accent); }
+.snail-journey-timeline {
+  display: flex;
+  overflow-x: auto;
+  padding: 6px 4px 4px 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.snail-journey-timeline::-webkit-scrollbar { height: 4px; }
+.timeline-node {
+  position: relative;
+  width: 32px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 18px; /* 给上方的"今日蜗牛"留位 */
+}
+.timeline-node .snail-here {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 16px;
+  display: none;
+}
+.timeline-node.today .snail-here { display: block; }
+.timeline-node .flowers {
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  letter-spacing: -1.5px;
+  color: #6B4C2A;
+  position: relative;
+  z-index: 1;
+}
+.timeline-node .flowers.empty::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #6B4C2A;
+  opacity: 0.45;
+  display: block;
+}
+.timeline-node.today .flowers,
+.timeline-node.today .date-label {
+  color: #9B6B3F;
+  font-weight: 600;
+}
+[data-theme="dark"] .timeline-node.today .flowers,
+[data-theme="dark"] .timeline-node.today .date-label {
+  color: var(--accent);
+}
+.timeline-node .date-label {
+  font-size: 11px;
+  color: #7A766F;
+  margin-top: 4px;
+  letter-spacing: 0;
+}
+[data-theme="dark"] .timeline-node .date-label { color: var(--text-soft); }
+/* 节点之间的连线：靠右侧伪元素从当前节点中心连到下一节点中心 */
+.timeline-node::after {
+  content: '';
+  position: absolute;
+  top: 27px; /* 与 flowers 中线对齐：18(padding) + 9(flowers中线) */
+  left: 50%;
+  width: 100%;
+  height: 1px;
+  background: #6B4C2A;
+  z-index: 0;
+}
+.timeline-node[data-gap="dashed"]::after {
+  background: transparent;
+  border-top: 1px dashed rgba(107,76,42,0.3);
+  height: 0;
+}
+.timeline-node[data-gap="none"]::after { display: none; }
+.timeline-node:last-child::after { display: none; }
 </style>
 </head>
 <body>
@@ -1595,9 +1753,12 @@ textarea.api-input {
 
   <!-- Header -->
   <div class="header">
-    <div>
-      <h1 id="page-title">全部计划</h1>
-      <div class="date" id="header-date"></div>
+    <div class="header-title-row">
+      <div id="snail-status" class="snail-status" aria-label="今日蜗牛状态"></div>
+      <div>
+        <h1 id="page-title">全部计划</h1>
+        <div class="date" id="header-date"></div>
+      </div>
     </div>
     <div id="header-extra"></div>
   </div>
@@ -1829,6 +1990,280 @@ function saveState(opts) {
     scheduleCloudSync();
   }
 }
+/* ============== 蜗牛状态 + 里程系统 ============== */
+const SNAIL_COLOR = '#6B4C2A';
+
+function loadSnailMileage() {
+  let raw;
+  try { raw = localStorage.getItem('snail_mileage'); } catch(_) { raw = null; }
+  if (!raw) return { total: 0, dailyLog: {} };
+  try {
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') return { total: 0, dailyLog: {} };
+    return {
+      total: Number(obj.total) || 0,
+      dailyLog: (obj.dailyLog && typeof obj.dailyLog === 'object') ? obj.dailyLog : {}
+    };
+  } catch(_) {
+    return { total: 0, dailyLog: {} };
+  }
+}
+function saveSnailMileage(m) {
+  try { localStorage.setItem('snail_mileage', JSON.stringify(m)); } catch(_) {}
+}
+let snailMileage = loadSnailMileage();
+let _prevSnailState = null;
+
+function computeTodayCompletionRate() {
+  const today = todayStr();
+  const all = [...state.tasks, ...state.done].filter(t => t.date === today);
+  if (all.length === 0) return 0;
+  const done = state.done.filter(t => t.date === today).length;
+  return done / all.length;
+}
+
+function getSnailState(rate) {
+  if (rate <= 0) return 'sleeping';
+  if (rate >= 1) return 'bloom';
+  if (rate <= 0.30) return 'peek';
+  if (rate <= 0.60) return 'start';
+  return 'speed';
+}
+
+/* 五个蜗牛 SVG 状态：32x32 viewBox，#6B4C2A 线条
+ * 风格：阿基米德螺旋（用三层同心圆稳定呈现）+ 左侧括号曲线（身体底部）+ 触角圆点 */
+function snailStatusSVG(name) {
+  const c = SNAIL_COLOR;
+  const common = `xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="${c}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"`;
+  if (name === 'sleeping') {
+    return `<svg ${common}>
+      <circle cx="15" cy="19" r="7" />
+      <circle cx="15.6" cy="19.6" r="4" />
+      <circle cx="16.1" cy="20.1" r="1.5" />
+      <text x="22" y="11" font-size="6" fill="${c}" stroke="none" font-style="italic" font-family="Georgia, serif">z</text>
+      <text x="25.5" y="8" font-size="5" fill="${c}" stroke="none" font-style="italic" font-family="Georgia, serif">z</text>
+      <text x="28.5" y="6" font-size="4" fill="${c}" stroke="none" font-style="italic" font-family="Georgia, serif">z</text>
+    </svg>`;
+  }
+  if (name === 'peek') {
+    return `<svg ${common}>
+      <circle cx="12" cy="19" r="6.5" />
+      <circle cx="12.6" cy="19.6" r="3.5" />
+      <circle cx="13.1" cy="20.1" r="1.3" />
+      <path d="M 18.5 19 Q 21.5 18.5 22.5 14.5" />
+      <line x1="21" y1="13" x2="21" y2="9.5" />
+      <line x1="24" y1="13" x2="25.5" y2="9.5" />
+      <circle cx="21" cy="9" r="1" fill="${c}" stroke="none" />
+      <circle cx="25.7" cy="9.2" r="1" fill="${c}" stroke="none" />
+    </svg>`;
+  }
+  if (name === 'start') {
+    return `<svg ${common}>
+      <path d="M 4 24 Q 11 26.5 18 24 Q 24 22 27 19" />
+      <circle cx="11" cy="18" r="6" />
+      <circle cx="11.6" cy="18.6" r="3.3" />
+      <circle cx="12.1" cy="19.1" r="1.2" />
+      <path d="M 19 22 Q 24 22.5 27 18" />
+      <line x1="24" y1="16" x2="24" y2="11" />
+      <line x1="27.5" y1="17" x2="29" y2="12.5" />
+      <circle cx="24" cy="10.3" r="1" fill="${c}" stroke="none" />
+      <circle cx="29.2" cy="11.8" r="1" fill="${c}" stroke="none" />
+    </svg>`;
+  }
+  if (name === 'speed') {
+    return `<svg ${common}>
+      <path d="M 1 14 Q 2.5 13 4 14" opacity="0.55" stroke-width="1.2" />
+      <path d="M 1 20 Q 2.5 19 4 20" opacity="0.55" stroke-width="1.2" />
+      <path d="M 7 24 Q 14 26.5 21 24 Q 27 22 30 19" />
+      <circle cx="14" cy="18" r="6" />
+      <circle cx="14.6" cy="18.6" r="3.3" />
+      <circle cx="15.1" cy="19.1" r="1.2" />
+      <path d="M 22 22 Q 27 22.5 30 18" />
+      <line x1="27" y1="16" x2="27" y2="11" />
+      <line x1="30.5" y1="17" x2="31.8" y2="12.5" />
+      <circle cx="27" cy="10.3" r="1" fill="${c}" stroke="none" />
+      <circle cx="31.9" cy="11.8" r="1" fill="${c}" stroke="none" />
+    </svg>`;
+  }
+  // bloom：满分开花
+  return `<svg ${common}>
+    <path d="M 4 25 Q 11 27 18 25 Q 24 23 27 20" />
+    <circle cx="11" cy="20" r="5.5" />
+    <circle cx="11.6" cy="20.6" r="3" />
+    <circle cx="12.1" cy="21.1" r="1.2" />
+    <path d="M 19 23 Q 24 23.5 27 19" />
+    <line x1="24" y1="17" x2="24" y2="13.5" />
+    <line x1="27.5" y1="18" x2="29" y2="14" />
+    <g class="bloom-flower f1" style="transform-origin:11px 8.5px">
+      <circle cx="11" cy="7" r="1.3" fill="${c}" stroke="none" />
+      <circle cx="12.8" cy="8.5" r="1.3" fill="${c}" stroke="none" />
+      <circle cx="11" cy="10" r="1.3" fill="${c}" stroke="none" />
+      <circle cx="9.2" cy="8.5" r="1.3" fill="${c}" stroke="none" />
+      <circle cx="11" cy="8.5" r="0.65" fill="#FAF9F6" stroke="none" />
+    </g>
+    <g class="bloom-flower f2" style="transform-origin:24px 12.5px">
+      <circle cx="24" cy="11.5" r="0.95" fill="${c}" stroke="none" />
+      <circle cx="25.1" cy="12.5" r="0.95" fill="${c}" stroke="none" />
+      <circle cx="24" cy="13.5" r="0.95" fill="${c}" stroke="none" />
+      <circle cx="22.9" cy="12.5" r="0.95" fill="${c}" stroke="none" />
+      <circle cx="24" cy="12.5" r="0.45" fill="#FAF9F6" stroke="none" />
+    </g>
+    <g class="bloom-flower f3" style="transform-origin:29px 13.5px">
+      <circle cx="29" cy="12.5" r="0.95" fill="${c}" stroke="none" />
+      <circle cx="30.1" cy="13.5" r="0.95" fill="${c}" stroke="none" />
+      <circle cx="29" cy="14.5" r="0.95" fill="${c}" stroke="none" />
+      <circle cx="27.9" cy="13.5" r="0.95" fill="${c}" stroke="none" />
+      <circle cx="29" cy="13.5" r="0.45" fill="#FAF9F6" stroke="none" />
+    </g>
+  </svg>`;
+}
+
+/* 更新 header 蜗牛状态，带淡出/淡入 + scale 弹入动画 */
+function updateSnailStatus(forceImmediate) {
+  const root = document.getElementById('snail-status');
+  if (!root) return;
+  const rate = computeTodayCompletionRate();
+  const newState = getSnailState(rate);
+  if (!forceImmediate && _prevSnailState === newState && root.firstChild) return;
+
+  const oldSvgWrap = root.querySelector('.snail-svg');
+  const newWrap = document.createElement('div');
+  newWrap.className = 'snail-svg entering';
+  newWrap.innerHTML = snailStatusSVG(newState);
+
+  if (oldSvgWrap && !forceImmediate) {
+    // 淡出旧的
+    oldSvgWrap.classList.add('exiting');
+    setTimeout(() => {
+      try { oldSvgWrap.remove(); } catch(_) {}
+    }, 320);
+    // 重叠：旧的还在淡出时插入新的（绝对定位避免抖动）
+    newWrap.style.position = 'absolute';
+    newWrap.style.inset = '0';
+    root.appendChild(newWrap);
+    requestAnimationFrame(() => {
+      newWrap.classList.add('active');
+    });
+    setTimeout(() => {
+      newWrap.style.position = '';
+      newWrap.style.inset = '';
+    }, 400);
+  } else {
+    root.innerHTML = '';
+    root.appendChild(newWrap);
+    requestAnimationFrame(() => {
+      newWrap.classList.add('active');
+    });
+  }
+  _prevSnailState = newState;
+}
+
+/* 完成任务时调用：按分类加里程 + 计算 100% 奖励 + streak 奖励 */
+function awardMileageOnComplete(task) {
+  const today = todayStr();
+  if (!snailMileage.dailyLog[today]) {
+    snailMileage.dailyLog[today] = { earned: 0, completionRate: 0, bonusGiven: false, streakBonusGiven: false };
+  }
+  const log = snailMileage.dailyLog[today];
+  const cat = task && task.cat;
+  const base = (cat === 'C') ? 1 : 3; // R/S/G +3，C +1
+  log.earned += base;
+  snailMileage.total += base;
+
+  // streak 奖励：本日首次完成任意任务 → +1km × streak（包含今天）
+  if (!log.streakBonusGiven) {
+    // 先把今天的 completionRate 暂存为大于 0 的值，以便 streak 包含今天
+    log.completionRate = Math.max(log.completionRate, 0.0001);
+    const streak = computeMileageStreak();
+    if (streak > 0) {
+      log.earned += streak;
+      snailMileage.total += streak;
+    }
+    log.streakBonusGiven = true;
+  }
+
+  // 更新真实完成率
+  log.completionRate = computeTodayCompletionRate();
+
+  // 100% 奖励：每天只触发一次
+  if (log.completionRate >= 1 && !log.bonusGiven) {
+    log.earned += 5;
+    snailMileage.total += 5;
+    log.bonusGiven = true;
+  }
+
+  saveSnailMileage(snailMileage);
+}
+
+/* 取消完成时调用：只更新当日完成率，不退还里程 */
+function recomputeDailyRate() {
+  const today = todayStr();
+  if (!snailMileage.dailyLog[today]) return;
+  snailMileage.dailyLog[today].completionRate = computeTodayCompletionRate();
+  saveSnailMileage(snailMileage);
+}
+
+/* 计算 streak：从今天往前数连续完成率 > 0 的天数（包含今天） */
+function computeMileageStreak() {
+  let streak = 0;
+  let cursor = todayStr();
+  for (let i = 0; i < 365; i++) {
+    const log = snailMileage.dailyLog[cursor];
+    if (log && log.completionRate > 0) {
+      streak++;
+      cursor = dateAdd(cursor, -1);
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+/* 蜗牛旅程：统计页顶部组件 */
+function renderSnailJourneyHTML() {
+  const today = todayStr();
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = dateAdd(today, -i);
+    const log = snailMileage.dailyLog[d];
+    const rate = log ? log.completionRate : 0;
+    days.push({ date: d, rate });
+  }
+  const km = Math.round(snailMileage.total);
+
+  const nodesHTML = days.map((day, idx) => {
+    const next = days[idx + 1];
+    let gap = 'none';
+    if (next) {
+      // 当日和次日都完成（rate>0）：实线；否则虚线
+      gap = (day.rate > 0 && next.rate > 0) ? 'solid' : 'dashed';
+    }
+    let flowersHTML;
+    if (day.rate >= 1) flowersHTML = '<div class="flowers">✿✿✿</div>';
+    else if (day.rate >= 0.61) flowersHTML = '<div class="flowers">✿✿</div>';
+    else if (day.rate > 0) flowersHTML = '<div class="flowers">✿</div>';
+    else flowersHTML = '<div class="flowers empty"></div>';
+    const isToday = day.date === today;
+    const dt = new Date(day.date);
+    const label = `${dt.getMonth()+1}/${dt.getDate()}`;
+    const snailHere = isToday ? `<div class="snail-here">${snailStatusSVG(getSnailState(day.rate))}</div>` : '';
+    return `<div class="timeline-node${isToday ? ' today' : ''}" data-gap="${gap}">
+      ${snailHere}
+      ${flowersHTML}
+      <div class="date-label">${label}</div>
+    </div>`;
+  }).join('');
+
+  return `<div class="snail-journey">
+    <div class="snail-journey-mileage">
+      <span>🐌 已爬行</span>
+      <span class="num">${km}</span>
+      <span>km</span>
+    </div>
+    <div class="snail-journey-timeline" id="snail-journey-timeline">${nodesHTML}</div>
+  </div>`;
+}
+
 function toast(msg, ms = 2000) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -3439,6 +3874,10 @@ function toggleComplete(taskId) {
     state.done.push(t);
     // 完成的任务在云端软删除（next 同步周期 done 不再上推）
     cloudSoftDelete(t.id);
+    // 仅当任务属于今日时计入里程
+    if (t.date === todayStr()) {
+      awardMileageOnComplete(t);
+    }
     // 如果是专注任务，延迟 800ms 移出专注区块（保留完成动效）
     if (focusPins.includes(t.id)) {
       setTimeout(() => {
@@ -3457,10 +3896,13 @@ function toggleComplete(taskId) {
       }
       state.done.splice(idx, 1);
       state.tasks.push(t);
+      if (t.date === todayStr()) recomputeDailyRate();
     }
   }
   saveState();
   render();
+  // 状态切换动画：在 render 之后，蜗牛 SVG 容器仍是同一个 DOM
+  updateSnailStatus();
 }
 
 /* ---------------- 删除任务 ---------------- */
@@ -4012,6 +4454,7 @@ function renderHeader() {
     ? `<button id="sync-dot" class="sync-dot ${syncStatus}" onclick="manualSync()" aria-label="同步状态"></button>`
     : '';
   extra.innerHTML = streakHTML + syncHTML;
+  updateSnailStatus();
 }
 
 async function manualSync() {
@@ -4841,6 +5284,7 @@ function deleteRecur(id) {
 function renderStats() {
   const main = document.getElementById('main');
   main.innerHTML = `
+    ${renderSnailJourneyHTML()}
     <div class="stat-tabs">
       <button data-v="day" class="${statView==='day'?'active':''}">日</button>
       <button data-v="week" class="${statView==='week'?'active':''}">周</button>
@@ -4860,6 +5304,9 @@ function renderStats() {
   main.querySelectorAll('.stat-tabs button').forEach(b => {
     b.onclick = () => { statView = b.dataset.v; renderStats(); };
   });
+  // 时间轴默认滚到最右（今天）
+  const tl = document.getElementById('snail-journey-timeline');
+  if (tl) tl.scrollLeft = tl.scrollWidth;
   renderStatChart();
 }
 
