@@ -375,6 +375,7 @@ h3 { font-size: 17px; font-weight: 600; margin: 0; }
   transition: background 0.15s;
 }
 .icon-btn:hover { background: var(--bg-soft); }
+.icon-btn.is-fav { color: #f59e0b; font-size: 16px; }
 .complete-btn {
   width: 24px; height: 24px;
   border-radius: 50%;
@@ -1131,7 +1132,8 @@ function makeTask(opts) {
     isRecur: !!opts.isRecur,
     priorityManualOverride: !!opts.priorityManualOverride,
     deadlineUrgencyApplied: false,
-    notes: opts.notes || ''
+    notes: opts.notes || '',
+    favoriteId: opts.favoriteId || null
   };
 }
 
@@ -2148,19 +2150,32 @@ function showRecurTemplateModal(tplId) {
 function favoriteTask(taskId) {
   const t = findTask(taskId);
   if (!t) return;
-  // 避免重复
-  if (state.favorites.some(f => f.desc === t.desc && f.cat === t.cat)) {
-    toast('已在收藏中');
+
+  // 已收藏 → 取消（按 favoriteId 链接，比 desc+cat 匹配更稳健）
+  if (t.favoriteId && state.favorites.some(f => f.id === t.favoriteId)) {
+    state.favorites = state.favorites.filter(f => f.id !== t.favoriteId);
+    t.favoriteId = null;
+    saveState();
+    render();
+    toast('已取消收藏');
     return;
   }
-  state.favorites.push({
-    id: uid(),
-    desc: t.desc,
-    cat: t.cat,
-    priority: t.priority,
-    durPlan: t.durPlan
-  });
+
+  // 未收藏 → 加入。若 desc+cat 已存在同内容收藏则复用其 id，避免重复
+  let existing = state.favorites.find(f => f.desc === t.desc && f.cat === t.cat);
+  if (!existing) {
+    existing = {
+      id: uid(),
+      desc: t.desc,
+      cat: t.cat,
+      priority: t.priority,
+      durPlan: t.durPlan
+    };
+    state.favorites.push(existing);
+  }
+  t.favoriteId = existing.id;
   saveState();
+  render();
   toast('已收藏');
 }
 
@@ -2172,7 +2187,8 @@ function addFromFavorite(favId) {
     cat: f.cat,
     priority: f.priority,
     durPlan: f.durPlan,
-    date: todayStr()
+    date: todayStr(),
+    favoriteId: f.id // 一键添加的任务直接标记为已收藏
   }));
   saveState();
   render();
@@ -2255,7 +2271,7 @@ function taskCardHTML(t, opts={}) {
       </div>
       <div class="timer-area">${timerHTML}</div>
       <div class="task-actions">
-        <button class="icon-btn" onclick="favoriteTask('${t.id}')" title="收藏">☆</button>
+        <button class="icon-btn ${t.favoriteId ? 'is-fav' : ''}" onclick="favoriteTask('${t.id}')" title="${t.favoriteId ? '取消收藏' : '收藏'}">${t.favoriteId ? '★' : '☆'}</button>
         <button class="icon-btn" onclick="exportTaskICS('${t.id}')" title="导出日历">⤓</button>
         <button class="icon-btn" onclick="deleteTask('${t.id}')" title="删除">✕</button>
       </div>
@@ -3180,6 +3196,9 @@ function renderSettings() {
 
 function deleteFav(id) {
   state.favorites = state.favorites.filter(f => f.id !== id);
+  // 清掉所有任务上对该收藏的引用，避免卡片显示实心星但点击无效
+  state.tasks.forEach(t => { if (t.favoriteId === id) t.favoriteId = null; });
+  state.done.forEach(t => { if (t.favoriteId === id) t.favoriteId = null; });
   saveState();
   render();
 }
