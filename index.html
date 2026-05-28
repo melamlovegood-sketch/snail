@@ -1267,21 +1267,47 @@ textarea.api-input {
 .btn-feedback:hover { background: #7f5632; }
 
 .faq-item {
-  padding: 12px 0;
   border-bottom: 1px solid var(--border-soft);
 }
-.faq-item:last-child { border-bottom: none; padding-bottom: 0; }
+.faq-item:last-child { border-bottom: none; }
 .faq-q {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
-  margin-bottom: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+.faq-arrow {
+  font-size: 10px;
+  color: var(--text-soft);
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+.faq-item.open .faq-arrow {
+  transform: rotate(90deg);
 }
 .faq-a {
   font-size: 13px;
   color: var(--text-soft);
-  line-height: 1.5;
+  line-height: 1.6;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 150ms ease, padding-bottom 150ms ease;
 }
+.faq-item.open .faq-a {
+  max-height: 400px;
+  padding-bottom: 12px;
+}
+.faq-a a {
+  color: #9B6B3F;
+  text-decoration: none;
+}
+.faq-a a:hover { text-decoration: underline; }
 
 /* ===================== 收藏 ===================== */
 .fav-row {
@@ -7312,18 +7338,26 @@ function renderSettings() {
 
     <div class="section-title">常见问题</div>
     <div class="settings-section">
-      <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:0">
+      <div style="padding:4px 0">
         <div class="faq-item">
-          <div class="faq-q">数据存在哪里？</div>
-          <div class="faq-a">默认保存在浏览器本地存储（localStorage），登录账号后可自动同步到云端。</div>
+          <div class="faq-q"><span>图片上传后显示「未识别任务」怎么办？</span><span class="faq-arrow">▶</span></div>
+          <div class="faq-a">图片解析已自动使用千问视觉模型（qwen-vl-plus），请确认你在设置页填写了千问的 API Key。如果没有千问 Key，可前往 <a href="https://bailian.console.aliyun.com" target="_blank">bailian.console.aliyun.com</a> 注册获取。</div>
         </div>
         <div class="faq-item">
-          <div class="faq-q">如何设置循环任务？</div>
-          <div class="faq-a">新建任务时打开「循环」开关，选择重复日期，保存后会按周自动生成。</div>
+          <div class="faq-q"><span>AI 调用失败，提示「未提供 API Key」？</span><span class="faq-arrow">▶</span></div>
+          <div class="faq-a">请在设置页的「AI 模型配置」中填入你的 API Key 并保存。Key 仅存储在本地，不会上传到服务器。</div>
         </div>
         <div class="faq-item">
-          <div class="faq-q">AI 助手无法回复怎么办？</div>
-          <div class="faq-a">请在设置 → AI 模型配置 中填入有效的 API Key，并确认余额充足。</div>
+          <div class="faq-q"><span>支持哪些 AI 服务？在哪里获取 Key？</span><span class="faq-arrow">▶</span></div>
+          <div class="faq-a">目前支持以下五家，点击链接注册获取 Key：<br>· 千问（推荐）：<a href="https://bailian.console.aliyun.com" target="_blank">bailian.console.aliyun.com</a><br>· DeepSeek：<a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a><br>· OpenAI：<a href="https://platform.openai.com" target="_blank">platform.openai.com</a><br>· Claude：<a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a><br>· Gemini：<a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a></div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q"><span>数据会丢失吗？</span><span class="faq-arrow">▶</span></div>
+          <div class="faq-a">登录账号后数据自动云同步，换设备也能访问。未登录时数据仅保存在本地浏览器，清除缓存会丢失，建议注册登录。</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q"><span>任务推迟太多次怎么办？</span><span class="faq-arrow">▶</span></div>
+          <div class="faq-a">当一个任务被推迟 3 次后，系统会触发「承认现实」弹窗，帮你重新审视这个任务。你可以选择拆解它、继续推迟，或者删除。</div>
         </div>
       </div>
     </div>
@@ -7408,6 +7442,10 @@ function renderSettings() {
       toast('已清空');
     }
   };
+  // FAQ 手风琴
+  main.querySelectorAll('.faq-q').forEach(q => {
+    q.onclick = () => q.closest('.faq-item').classList.toggle('open');
+  });
 }
 
 function deleteFav(id) {
