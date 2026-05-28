@@ -319,8 +319,20 @@ h3 {
   transition: background 0.25s ease, border-color 0.25s ease;
   position: relative;
 }
-.task-card.done { opacity: 0.55; }
-.task-card.done .task-desc { text-decoration: line-through; }
+.task-card.done { border-color: rgba(176,170,160,0.18); }
+.task-card.done .task-desc { text-decoration: line-through; color: #B0AAA0; }
+.task-card.done .task-row2 { color: #B0AAA0 !important; }
+.task-card.done .cat-tag,
+.task-card.done .time-tag,
+.task-card.done .time-label-tag,
+.task-card.done .deadline-tag,
+.task-card.done .rollover-tag,
+.task-card.done .procrastinate-tag,
+.task-card.done .decomposed-tag,
+.task-card.done .recur-tag { color: #B0AAA0 !important; background: rgba(176,170,160,0.10) !important; }
+.task-card.done .timer-display { color: #B0AAA0; }
+.task-card.done .icon-btn { color: #C8C3BB; }
+.task-card.done .pri-edge::before { background: #C8C3BB !important; }
 
 /* 左侧 3px 细色条：替代以前的色点 */
 .pri-edge {
@@ -854,8 +866,8 @@ h3 {
 }
 .complete-btn:hover { border-color: var(--text-soft); }
 .task-card.done .complete-btn {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: #B0AAA0;
+  border-color: #B0AAA0;
 }
 .task-card.done .complete-btn::after {
   /* 细线钩号：通过两条 border 拼出 */
@@ -868,6 +880,50 @@ h3 {
   border: solid var(--accent-text);
   border-width: 0 1.5px 1.5px 0;
   transform: translate(-50%, -50%) rotate(45deg);
+}
+
+/* ===================== 已完成区域折叠 ===================== */
+.done-collapse-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  cursor: pointer;
+  color: #B0AAA0;
+  font-size: 12px;
+  font-family: "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif;
+  user-select: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 2px;
+  letter-spacing: 0.02em;
+  min-height: 0;
+}
+.done-collapse-row:hover { background: var(--bg-soft); }
+.done-collapse-arrow {
+  font-size: 11px;
+  transition: transform 150ms ease-in-out;
+  display: inline-block;
+  line-height: 1;
+}
+.done-collapse-row.expanded .done-collapse-arrow { transform: rotate(90deg); }
+.done-tasks-list {
+  overflow: hidden;
+  max-height: 9999px;
+  opacity: 1;
+  transition: max-height 150ms ease-in-out, opacity 150ms ease-in-out;
+}
+.done-tasks-list.collapsed {
+  max-height: 0;
+  opacity: 0;
+}
+
+/* 完成沉底动画：勾选后卡片下滑淡出 200ms */
+.task-card-sinking, .swipe-wrap-sinking {
+  pointer-events: none;
 }
 
 /* ===================== 弹出菜单 ===================== */
@@ -2315,11 +2371,11 @@ textarea.api-input {
   }, 5000);
 })();
 
-const QWEN_API_KEY = 'YOUR_API_KEY_HERE'; // ← 用户在此填写 通义千问 API Key
-const QWEN_MODEL_VL = 'qwen-vl-plus';   // 图片解析（视觉模型）
-const QWEN_MODEL_TEXT = 'qwen-plus';    // 文字处理（总结分析）
 const QWEN_URL = '/api/qwen';
-// 获取 API Key：https://dashscope.console.aliyun.com/
+function getAiConfig() {
+  try { const r = localStorage.getItem('aiConfig'); if (r) return JSON.parse(r); } catch(_) {}
+  return { provider: 'qwen', apiKey: '', model: 'qwen-plus' };
+}
 
 /* ---------------- 全局状态 ---------------- */
 const DEFAULT_STATE = {
@@ -2351,6 +2407,7 @@ let lastOperation = null; // { snapshot, summary, ts } —— 上次自然语言
 let checkInMode = false;  // 助手 tab 是否进入"今日复盘"模式
 let focusPins = [];       // 今日专注的任务 id 列表（最多 3 个）
 let focusHintSeen = false; // 是否已展示过首次引导（一次性）
+let doneCollapsed = {};   // 各分组已完成任务折叠状态 { [groupKey]: true/false }
 
 /* ============== Supabase 云同步 ============== */
 const SUPABASE_URL = 'https://ckwcobbuserktcjrmgly.supabase.co';
@@ -2899,9 +2956,8 @@ function toast(msg, ms = 2000) {
   toast._t = setTimeout(() => t.classList.remove('show'), ms);
 }
 function getApiKey() {
-  if (state.userApiKey && state.userApiKey.trim()) return state.userApiKey.trim();
-  if (QWEN_API_KEY && QWEN_API_KEY !== 'YOUR_API_KEY_HERE') return QWEN_API_KEY;
-  return '';
+  const cfg = getAiConfig();
+  return (cfg.apiKey && cfg.apiKey.trim()) ? cfg.apiKey.trim() : '';
 }
 
 /* ---------------- 今日专注 ---------------- */
@@ -4062,13 +4118,14 @@ async function handleImageUpload(file) {
 2) 紧急条件：date 是今天/明天 或 deadline ≤ 3 天 或 含 今天/明天/马上/立刻/紧急/尽快/截止
 3) 组合：重要+紧急→urgent-important / 重要→important / 紧急→urgent-unimportant / 都不→默认 important (蓝)`;
 
+    const _imgCfg = getAiConfig();
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: QWEN_MODEL_VL,
+        provider: _imgCfg.provider,
+        apiKey: _imgCfg.apiKey,
+        model: _imgCfg.model,
         max_tokens: 4096,
         messages: [
           { role: 'system', content: sysPrompt },
@@ -4497,6 +4554,24 @@ function startTimerTick() {
 
 /* ---------------- 完成任务 ---------------- */
 function toggleComplete(taskId) {
+  const isCurrentlyDone = state.done.some(t => t.id === taskId);
+  if (!isCurrentlyDone) {
+    // 任务勾选完成：先执行下滑淡出动画，200ms 后再更新状态
+    const cardEl = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
+    if (cardEl) {
+      const animTarget = cardEl.closest('.swipe-wrap') || cardEl;
+      animTarget.style.transition = 'transform 200ms ease-in-out, opacity 200ms ease-in-out';
+      animTarget.style.transform = 'translateY(24px)';
+      animTarget.style.opacity = '0';
+      animTarget.style.pointerEvents = 'none';
+      setTimeout(() => _doToggleComplete(taskId), 200);
+      return;
+    }
+  }
+  _doToggleComplete(taskId);
+}
+
+function _doToggleComplete(taskId) {
   let idx = state.tasks.findIndex(t => t.id === taskId);
   if (idx >= 0) {
     const t = state.tasks[idx];
@@ -5280,11 +5355,14 @@ async function checkMorningPlan() {
 order 的排序原则：高优先级 + 有 startTime 的按时间排 + 拖延久的优先动手。`;
 
   try {
+    const _mpCfg = getAiConfig();
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: QWEN_MODEL_TEXT,
+        provider: _mpCfg.provider,
+        apiKey: _mpCfg.apiKey,
+        model: _mpCfg.model,
         max_tokens: 1024,
         messages: [
           { role: 'system', content: sysPrompt },
@@ -5390,11 +5468,14 @@ B) 新任务格式：
 - summary 是给用户看的中文确认信息，简洁友好`;
 
   try {
+    const _nlCfg = getAiConfig();
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: QWEN_MODEL_TEXT,
+        provider: _nlCfg.provider,
+        apiKey: _nlCfg.apiKey,
+        model: _nlCfg.model,
         max_tokens: 2048,
         messages: [
           { role: 'system', content: sysPrompt },
@@ -5553,11 +5634,14 @@ async function decomposeTask(taskId) {
 计划总时长：${t.durPlan} 分钟${t.notes ? '\n备注：'+t.notes : ''}`;
 
   try {
+    const _dcCfg = getAiConfig();
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: QWEN_MODEL_TEXT,
+        provider: _dcCfg.provider,
+        apiKey: _dcCfg.apiKey,
+        model: _dcCfg.model,
         max_tokens: 1024,
         messages: [
           { role: 'system', content: sysPrompt },
@@ -5647,6 +5731,46 @@ function showDecomposeConfirmModal(parentTask, subtasks) {
   backdrop.addEventListener('click', e => { if (e.target === backdrop) backdrop.remove(); });
 }
 
+/* 切换某分组已完成区域的展开/折叠（纯 DOM 操作，不触发整页 re-render） */
+function toggleDoneCollapsed(groupKey) {
+  doneCollapsed[groupKey] = !doneCollapsed[groupKey];
+  const section = document.querySelector(`.done-section[data-group-key="${groupKey}"]`);
+  if (!section) return;
+  const isCollapsed = !!doneCollapsed[groupKey];
+  const collapseRow = section.querySelector('.done-collapse-row');
+  const taskList = section.querySelector('.done-tasks-list');
+  if (collapseRow) collapseRow.classList.toggle('expanded', !isCollapsed);
+  if (taskList) taskList.classList.toggle('collapsed', isCollapsed);
+}
+
+/* 渲染某分组的已完成任务区域 */
+function renderDoneSection(doneItems, groupKey) {
+  if (doneItems.length === 0) return '';
+  const isCollapsed = !!doneCollapsed[groupKey];
+  const showToggle = doneItems.length > 3;
+  const safeKey = groupKey.replace(/"/g, '&quot;');
+
+  if (showToggle) {
+    return `
+      <div class="done-section" data-group-key="${safeKey}">
+        <button class="done-collapse-row ${isCollapsed ? '' : 'expanded'}" onclick="toggleDoneCollapsed('${safeKey}')">
+          <span class="done-collapse-arrow">›</span>
+          ✓ 已完成 ${doneItems.length} 项
+        </button>
+        <div class="done-tasks-list ${isCollapsed ? 'collapsed' : ''}">
+          ${doneItems.map(t => taskCardHTML(t)).join('')}
+        </div>
+      </div>
+    `;
+  } else {
+    return `
+      <div class="done-section" data-group-key="${safeKey}">
+        ${doneItems.map(t => taskCardHTML(t)).join('')}
+      </div>
+    `;
+  }
+}
+
 function renderPlans() {
   const main = document.getElementById('main');
   main.innerHTML = `
@@ -5696,6 +5820,7 @@ function renderPlans() {
     `;
     return;
   }
+  const doneIdSet = new Set(state.done.map(t => t.id));
   const groups = {};
   allTasks.forEach(t => {
     if (!groups[t.date]) groups[t.date] = [];
@@ -5703,15 +5828,20 @@ function renderPlans() {
   });
   const sortedDates = Object.keys(groups).sort();
   const listEl = main.querySelector('#plans-list');
-  listEl.innerHTML = sortedDates.map(date => `
-    <div class="task-group">
-      <div class="task-group-header">
-        <span class="date-label">${fmtDate(date)}</span>
-        <span class="text-xs text-faint">${groups[date].length} 项</span>
+  listEl.innerHTML = sortedDates.map(date => {
+    const doneTasks = groups[date].filter(t => doneIdSet.has(t.id));
+    const undoneTasks = groups[date].filter(t => !doneIdSet.has(t.id));
+    return `
+      <div class="task-group">
+        <div class="task-group-header">
+          <span class="date-label">${fmtDate(date)}</span>
+          <span class="text-xs text-faint">${groups[date].length} 项</span>
+        </div>
+        ${sortTasks(undoneTasks).map(t => taskCardHTML(t)).join('')}
+        ${renderDoneSection(doneTasks, date)}
       </div>
-      ${sortTasks(groups[date]).map(t => taskCardHTML(t)).join('')}
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 function showFavoritesQuickPick() {
@@ -5812,7 +5942,7 @@ function renderToday() {
         <span class="text-xs text-faint">${restDone.length} 已完成</span>
       </div>
       ${sortedUnfinished.map(t => taskCardHTML(t)).join('')}
-      ${restDone.map(t => taskCardHTML(t)).join('')}
+      ${renderDoneSection(restDone, 'today')}
       ${deferEligibleCount > 0 ? '<button class="day-end-btn" onclick="openBatchDeferPanel()">今天先到这里</button>' : ''}
     </div>
   `;
@@ -6175,11 +6305,14 @@ async function fetchBatchDeferAILine() {
 不要评判好坏，不要说加油，语气平静自然，
 可以带一点点蜗牛的意象。`;
 
+  const _sumCfg = getAiConfig();
   const resp = await fetch(QWEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: QWEN_MODEL_TEXT,
+      provider: _sumCfg.provider,
+      apiKey: _sumCfg.apiKey,
+      model: _sumCfg.model,
       max_tokens: 80,
       messages: [
         { role: 'system', content: '你是一个语气平静自然的写作助手，只输出一句话，不要引号，不要解释。' },
@@ -6639,13 +6772,14 @@ async function aiSummary(view) {
 - 用中文，简洁有力
 - 控制在 250 字以内`;
 
+    const _stCfg = getAiConfig();
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: QWEN_MODEL_TEXT,
+        provider: _stCfg.provider,
+        apiKey: _stCfg.apiKey,
+        model: _stCfg.model,
         max_tokens: 1024,
         messages: [
           { role: 'system', content: sysPrompt },
@@ -6886,11 +7020,14 @@ async function startCheckIn() {
   render();
 
   try {
+    const _ciCfg = getAiConfig();
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: QWEN_MODEL_TEXT,
+        provider: _ciCfg.provider,
+        apiKey: _ciCfg.apiKey,
+        model: _ciCfg.model,
         max_tokens: 256,
         messages: [
           { role: 'system', content: buildCheckInSystemPrompt() },
@@ -6959,13 +7096,14 @@ async function sendChatMessage(text) {
       { role: 'system', content: buildAssistantSystemPrompt() },
       ...chatHistory
     ];
+    const _chatCfg = getAiConfig();
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: QWEN_MODEL_TEXT,
+        provider: _chatCfg.provider,
+        apiKey: _chatCfg.apiKey,
+        model: _chatCfg.model,
         max_tokens: 1024,
         messages
       })
@@ -7066,15 +7204,31 @@ function renderSettings() {
       </div>
     </div>
 
-    <div class="section-title">API Key</div>
+    <div class="section-title">AI 模型配置</div>
     <div class="settings-section">
-      <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:8px">
+      <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:12px">
         <div>
-          <div class="label">通义千问 API Key</div>
-          <div class="desc">用于截图解析（qwen-vl-plus）和 AI 总结（qwen-plus）。代码顶部已预留常量，此处可覆盖。<br>获取地址：<a href="https://dashscope.console.aliyun.com/" target="_blank" rel="noopener" style="color:var(--text); text-decoration:underline">dashscope.console.aliyun.com</a></div>
+          <div class="label" style="margin-bottom:6px">供应商</div>
+          <select id="ai-provider" style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:PingFang SC,sans-serif;font-size:14px">
+            <option value="qwen">千问（阿里云）</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="openai">OpenAI</option>
+            <option value="claude">Claude</option>
+            <option value="gemini">Gemini</option>
+          </select>
         </div>
-        <textarea class="api-input" id="api-key-input" placeholder="sk-…">${escapeHtml(state.userApiKey)}</textarea>
-        <button class="btn-primary" id="save-api" style="align-self:flex-end">保存</button>
+        <div>
+          <div class="label" style="margin-bottom:6px">API Key</div>
+          <div style="position:relative">
+            <input type="password" id="ai-apikey" placeholder="sk-…" style="width:100%;padding:9px 36px 9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:PingFang SC,sans-serif;font-size:14px;box-sizing:border-box">
+            <button id="ai-apikey-toggle" type="button" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-soft);font-size:13px;padding:4px;line-height:1">显示</button>
+          </div>
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:6px">模型</div>
+          <select id="ai-model" style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:PingFang SC,sans-serif;font-size:14px"></select>
+        </div>
+        <button class="btn-primary" id="save-ai-config" style="align-self:flex-end">保存</button>
       </div>
     </div>
 
@@ -7141,9 +7295,43 @@ function renderSettings() {
       renderSettings();
     };
   });
-  main.querySelector('#save-api').onclick = () => {
-    state.userApiKey = main.querySelector('#api-key-input').value.trim();
-    saveState();
+  // AI 模型配置
+  const _PROVIDER_MODELS = {
+    qwen:     ['qwen-plus', 'qwen-max', 'qwen-vl-plus'],
+    deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+    openai:   ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+    claude:   ['claude-3-5-haiku-20241022', 'claude-3-7-sonnet-20250219'],
+    gemini:   ['gemini-2.0-flash', 'gemini-2.5-pro-preview-05-06'],
+  };
+  const _aiCfg = getAiConfig();
+  const _provSel = main.querySelector('#ai-provider');
+  const _modelSel = main.querySelector('#ai-model');
+  const _apikeyInput = main.querySelector('#ai-apikey');
+  const _apikeyToggle = main.querySelector('#ai-apikey-toggle');
+
+  function _fillModels(provider, selectedModel) {
+    const models = _PROVIDER_MODELS[provider] || _PROVIDER_MODELS.qwen;
+    _modelSel.innerHTML = models.map(m => `<option value="${m}"${m === selectedModel ? ' selected' : ''}>${m}</option>`).join('');
+  }
+
+  _provSel.value = _aiCfg.provider || 'qwen';
+  _apikeyInput.value = _aiCfg.apiKey || '';
+  _fillModels(_aiCfg.provider || 'qwen', _aiCfg.model);
+
+  _provSel.onchange = () => _fillModels(_provSel.value, null);
+  _apikeyToggle.onclick = () => {
+    const show = _apikeyInput.type === 'password';
+    _apikeyInput.type = show ? 'text' : 'password';
+    _apikeyToggle.textContent = show ? '隐藏' : '显示';
+  };
+  main.querySelector('#save-ai-config').onclick = () => {
+    try {
+      localStorage.setItem('aiConfig', JSON.stringify({
+        provider: _provSel.value,
+        apiKey: _apikeyInput.value.trim(),
+        model: _modelSel.value,
+      }));
+    } catch(_) {}
     toast('已保存');
   };
   main.querySelector('#export-data').onclick = exportData;
