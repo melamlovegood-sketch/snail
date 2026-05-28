@@ -1248,6 +1248,41 @@ textarea.api-input {
 }
 .empty .big { font-size: 40px; margin-bottom: 12px; }
 
+/* ===================== 意见反馈 & FAQ ===================== */
+.btn-feedback {
+  display: inline-block;
+  padding: 8px 16px;
+  background: #9B6B3F;
+  color: #fff;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .15s;
+  cursor: pointer;
+  border: none;
+  flex-shrink: 0;
+}
+.btn-feedback:hover { background: #7f5632; }
+
+.faq-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.faq-item:last-child { border-bottom: none; padding-bottom: 0; }
+.faq-q {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.faq-a {
+  font-size: 13px;
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
 /* ===================== 收藏 ===================== */
 .fav-row {
   display: flex;
@@ -7261,6 +7296,35 @@ function renderSettings() {
               <button class="icon-btn" onclick="deleteFav('${f.id}')" title="删除">✕</button>
             </div>
           `).join('')}
+      </div>
+    </div>
+
+    <div class="section-title">意见反馈</div>
+    <div class="settings-section">
+      <div class="settings-row">
+        <div>
+          <div class="label">有问题或建议？</div>
+          <div class="desc">欢迎告诉我们，帮助 Snail 越来越好</div>
+        </div>
+        <a href="mailto:2260562588@qq.com?subject=Snail%20%E5%8F%8D%E9%A6%88" class="btn-feedback">发邮件给我们</a>
+      </div>
+    </div>
+
+    <div class="section-title">常见问题</div>
+    <div class="settings-section">
+      <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:0">
+        <div class="faq-item">
+          <div class="faq-q">数据存在哪里？</div>
+          <div class="faq-a">默认保存在浏览器本地存储（localStorage），登录账号后可自动同步到云端。</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">如何设置循环任务？</div>
+          <div class="faq-a">新建任务时打开「循环」开关，选择重复日期，保存后会按周自动生成。</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">AI 助手无法回复怎么办？</div>
+          <div class="faq-a">请在设置 → AI 模型配置 中填入有效的 API Key，并确认余额充足。</div>
+        </div>
       </div>
     </div>
 
