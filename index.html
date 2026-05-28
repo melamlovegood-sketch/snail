@@ -2379,7 +2379,7 @@ textarea.api-input {
 
 <script>
 /* =====================================================================
- * Chronos Butler - 个人时间管理 PWA
+ * Snail - 个人时间管理 PWA
  * 设计哲学：克制、简洁、有重量感
  * ===================================================================== */
 
@@ -2452,7 +2452,8 @@ const DEFAULT_STATE = {
   lastMorningPlanDate: '',        // 上次显示早间规划助手的日期
   cloudUserEmail: '',             // 云端登录用户的 email（仅展示用）
   cloudPreference: '',             // '' / 'guest' / 'cloud' —— 用户选择记忆
-  syncQueue: []                    // 离线队列（暂存待同步 task id）
+  syncQueue: [],                   // 离线队列（暂存待同步 task id）
+  deletedRecurIds: []              // 本地已删除的循环模板 ID，防止同步时云端复活
 };
 
 let state = loadState();
@@ -3438,7 +3439,10 @@ function mergeCloudTasks(rows) {
 
 function mergeCloudTemplates(rows) {
   const localIds = new Set(state.recurTemplates.map(t => t.id));
+  const deletedIds = new Set(state.deletedRecurIds || []);
   rows.forEach(row => {
+    // 跳过本地已明确删除的模板，避免云端复活
+    if (deletedIds.has(row.id)) return;
     if (!localIds.has(row.id)) {
       state.recurTemplates.push(rowToTpl(row));
     }
@@ -3454,6 +3458,18 @@ async function cloudSoftDelete(taskId) {
     await sb.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', taskId);
   } catch(e) {
     console.warn('[Cloud] soft delete failed:', e);
+  }
+}
+
+/* ---- 删除循环模板到云端 ---- */
+async function cloudDeleteRecurTemplate(tplId) {
+  if (authStatus !== 'cloud' || !sb || !cloudUser) return;
+  if (!isUuid(tplId)) return;
+  if (!navigator.onLine) { syncStatus = 'offline'; updateSyncIndicator(); return; }
+  try {
+    await sb.from('recur_templates').delete().eq('id', tplId).eq('user_id', cloudUser.id);
+  } catch(e) {
+    console.warn('[Cloud] recur template delete failed:', e);
   }
 }
 
@@ -6553,7 +6569,12 @@ function renderRecur() {
 function deleteRecur(id) {
   if (!confirm('删除该循环任务模板？已生成的实例会保留。')) return;
   state.recurTemplates = state.recurTemplates.filter(t => t.id !== id);
+  // 记录本地删除标记，防止同步时云端复活
+  if (!Array.isArray(state.deletedRecurIds)) state.deletedRecurIds = [];
+  if (!state.deletedRecurIds.includes(id)) state.deletedRecurIds.push(id);
   saveState();
+  // 同步删除云端记录
+  cloudDeleteRecurTemplate(id);
   render();
 }
 
@@ -7374,7 +7395,7 @@ function renderSettings() {
     </div>
 
     <div class="text-xs text-faint" style="text-align:center; padding:24px 0 12px 0">
-      Chronos Butler · 个人时间管理
+      Snail · 个人时间管理
     </div>
   `;
 
@@ -7434,8 +7455,17 @@ function renderSettings() {
   };
   main.querySelector('#export-data').onclick = exportData;
   main.querySelector('#import-data').onclick = () => document.getElementById('json-input').click();
-  main.querySelector('#clear-data').onclick = () => {
+  main.querySelector('#clear-data').onclick = async () => {
     if (confirm('确认清空所有数据？此操作不可恢复。')) {
+      // 先清云端，再清本地，避免同步时从云端恢复
+      if (authStatus === 'cloud' && sb && cloudUser) {
+        try {
+          await sb.from('recur_templates').delete().eq('user_id', cloudUser.id);
+          await sb.from('tasks').delete().eq('user_id', cloudUser.id);
+        } catch(e) {
+          console.warn('[Cloud] clear cloud data failed:', e);
+        }
+      }
       localStorage.removeItem('chronos_state');
       state = loadState();
       render();
@@ -7508,7 +7538,7 @@ function buildICS(events) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Chronos Butler//ZH//',
+    'PRODID:-//Snail//ZH//',
     'CALSCALE:GREGORIAN'
   ];
   events.forEach(e => {
@@ -7805,11 +7835,15 @@ try {
     const btnGuest = document.getElementById('btn-guest');
     const showErr = msg => { if (errEl) errEl.textContent = msg || ''; };
 
+    const EMAIL_RE = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+    const isValidEmail = v => EMAIL_RE.test(v) && !v.includes('..');
+
     if (btnLogin) btnLogin.onclick = async () => {
       showErr('');
       const email = (emailIn && emailIn.value || '').trim();
       const password = (passIn && passIn.value) || '';
       if (!email || !password) { showErr('请填邮箱和密码'); return; }
+      if (!isValidEmail(email)) { showErr('邮箱格式不正确'); return; }
       const r = await loginWithEmail(email, password);
       if (r && r.error) showErr(r.error);
     };
@@ -7818,6 +7852,7 @@ try {
       const email = (emailIn && emailIn.value || '').trim();
       const password = (passIn && passIn.value) || '';
       if (!email || password.length < 6) { showErr('密码至少 6 位'); return; }
+      if (!isValidEmail(email)) { showErr('邮箱格式不正确'); return; }
       const r = await registerWithEmail(email, password);
       if (r && r.error) showErr(r.error);
       else if (r && r.needsConfirm) showErr('已发送确认邮件，请查收');
