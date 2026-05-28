@@ -1633,6 +1633,49 @@ textarea.api-input {
   transition: color 0.25s ease;
 }
 .auth-guest-btn:hover { color: var(--text); }
+.auth-card input[type=text] {
+  width: 100%;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 16px;
+  min-height: 46px;
+  outline: none;
+  color: var(--text);
+  transition: border-color 0.25s ease;
+}
+.auth-card input[type=text]:focus { border-color: var(--text-soft); }
+.auth-code-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.auth-code-row input[type=text] {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.btn-send-code {
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 14px;
+  font-size: 14px;
+  min-height: 46px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.btn-send-code:hover:not(:disabled) { background: var(--border); }
+.btn-send-code:disabled { color: var(--text-faint); cursor: default; }
+#auth-login-form, #auth-register-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
 /* ===================== 同步指示器 ===================== */
 .sync-dot {
@@ -2315,13 +2358,33 @@ textarea.api-input {
   <div class="auth-card">
     <h1 class="auth-title">每日计划</h1>
     <p class="auth-sub">登录后可在多设备间同步任务</p>
-    <input type="email" id="auth-email" placeholder="邮箱" autocomplete="email">
-    <input type="password" id="auth-password" placeholder="密码（≥ 6 位）" autocomplete="current-password">
-    <div id="auth-error" class="auth-error"></div>
-    <div class="auth-actions">
-      <button class="btn-primary" id="btn-login">登录</button>
-      <button class="btn-secondary" id="btn-register">注册</button>
+
+    <!-- 登录表单 -->
+    <div id="auth-login-form">
+      <input type="email" id="auth-email" placeholder="邮箱" autocomplete="email">
+      <input type="password" id="auth-password" placeholder="密码（≥ 6 位）" autocomplete="current-password">
+      <div id="auth-error" class="auth-error"></div>
+      <div class="auth-actions">
+        <button class="btn-primary" id="btn-login">登录</button>
+        <button class="btn-secondary" id="btn-register">注册</button>
+      </div>
     </div>
+
+    <!-- 注册表单（验证码两步流程） -->
+    <div id="auth-register-form" class="hidden">
+      <input type="email" id="reg-email" placeholder="邮箱" autocomplete="email">
+      <div class="auth-code-row">
+        <input type="text" id="reg-code" placeholder="6位验证码" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+        <button id="btn-send-code" class="btn-send-code">发送验证码</button>
+      </div>
+      <input type="password" id="reg-password" placeholder="密码（≥ 6 位）" autocomplete="new-password">
+      <div id="reg-error" class="auth-error"></div>
+      <div class="auth-actions">
+        <button class="btn-secondary" id="btn-back-login">返回登录</button>
+        <button class="btn-primary" id="btn-do-register">注册</button>
+      </div>
+    </div>
+
     <button class="auth-guest-btn" id="btn-guest">暂不登录，本地使用</button>
   </div>
 </div>
@@ -7827,36 +7890,138 @@ try { startTimerTick(); } catch(e) { console.error('[Chronos] startTimerTick 失
 try {
   const ov = document.getElementById('auth-overlay');
   if (ov) {
-    const emailIn = document.getElementById('auth-email');
-    const passIn = document.getElementById('auth-password');
-    const errEl = document.getElementById('auth-error');
-    const btnLogin = document.getElementById('btn-login');
-    const btnReg = document.getElementById('btn-register');
-    const btnGuest = document.getElementById('btn-guest');
-    const showErr = msg => { if (errEl) errEl.textContent = msg || ''; };
-
     const EMAIL_RE = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
     const isValidEmail = v => EMAIL_RE.test(v) && !v.includes('..');
+    const SNAIL_API_URL = 'https://snail-api.friday0.top';
 
+    /* ── 登录表单元素 ── */
+    const loginForm  = document.getElementById('auth-login-form');
+    const emailIn    = document.getElementById('auth-email');
+    const passIn     = document.getElementById('auth-password');
+    const errEl      = document.getElementById('auth-error');
+    const btnLogin   = document.getElementById('btn-login');
+    const btnReg     = document.getElementById('btn-register');
+    const btnGuest   = document.getElementById('btn-guest');
+    const showLoginErr = msg => { if (errEl) errEl.textContent = msg || ''; };
+
+    /* ── 注册表单元素 ── */
+    const registerForm  = document.getElementById('auth-register-form');
+    const regEmailIn    = document.getElementById('reg-email');
+    const regCodeIn     = document.getElementById('reg-code');
+    const regPassIn     = document.getElementById('reg-password');
+    const regErrEl      = document.getElementById('reg-error');
+    const btnSendCode   = document.getElementById('btn-send-code');
+    const btnBackLogin  = document.getElementById('btn-back-login');
+    const btnDoRegister = document.getElementById('btn-do-register');
+    const showRegErr = msg => { if (regErrEl) regErrEl.textContent = msg || ''; };
+
+    /* ── 切换到注册表单 ── */
+    if (btnReg) btnReg.onclick = () => {
+      showLoginErr('');
+      const prefill = (emailIn && emailIn.value || '').trim();
+      if (regEmailIn && prefill) regEmailIn.value = prefill;
+      if (loginForm) loginForm.classList.add('hidden');
+      if (registerForm) registerForm.classList.remove('hidden');
+      if (regEmailIn) regEmailIn.focus();
+    };
+
+    /* ── 返回登录表单 ── */
+    if (btnBackLogin) btnBackLogin.onclick = () => {
+      showRegErr('');
+      if (registerForm) registerForm.classList.add('hidden');
+      if (loginForm) loginForm.classList.remove('hidden');
+    };
+
+    /* ── 发送验证码（60s 冷却） ── */
+    let cooldownTimer = null;
+    if (btnSendCode) btnSendCode.onclick = async () => {
+      showRegErr('');
+      const email = (regEmailIn && regEmailIn.value || '').trim();
+      if (!email) { showRegErr('请填写邮箱'); return; }
+      if (!isValidEmail(email)) { showRegErr('邮箱格式不正确'); return; }
+
+      btnSendCode.disabled = true;
+      btnSendCode.textContent = '发送中…';
+      try {
+        const resp = await fetch(`${SNAIL_API_URL}/api/send-code`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!data.success) {
+          showRegErr(data.message || '发送失败，请重试');
+          btnSendCode.textContent = '发送验证码';
+          btnSendCode.disabled = false;
+          return;
+        }
+      } catch (_) {
+        showRegErr('发送失败，请重试');
+        btnSendCode.textContent = '发送验证码';
+        btnSendCode.disabled = false;
+        return;
+      }
+
+      let secs = 60;
+      btnSendCode.textContent = `${secs}s`;
+      clearInterval(cooldownTimer);
+      cooldownTimer = setInterval(() => {
+        secs--;
+        if (secs <= 0) {
+          clearInterval(cooldownTimer);
+          btnSendCode.textContent = '重新发送';
+          btnSendCode.disabled = false;
+        } else {
+          btnSendCode.textContent = `${secs}s`;
+        }
+      }, 1000);
+    };
+
+    /* ── 确认注册 ── */
+    if (btnDoRegister) btnDoRegister.onclick = async () => {
+      showRegErr('');
+      const email    = (regEmailIn && regEmailIn.value || '').trim();
+      const code     = (regCodeIn  && regCodeIn.value  || '').trim();
+      const password = (regPassIn  && regPassIn.value) || '';
+
+      if (!email)                   { showRegErr('请填写邮箱'); return; }
+      if (!isValidEmail(email))     { showRegErr('邮箱格式不正确'); return; }
+      if (!/^\d{6}$/.test(code))    { showRegErr('请输入6位数字验证码'); return; }
+      if (password.length < 6)      { showRegErr('密码至少 6 位'); return; }
+
+      btnDoRegister.disabled = true;
+      try {
+        const vResp = await fetch(`${SNAIL_API_URL}/api/verify-code`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, code }),
+        });
+        const vData = await vResp.json().catch(() => ({}));
+        if (!vData.valid) {
+          showRegErr(vData.message || '验证码错误');
+          return;
+        }
+        const r = await registerWithEmail(email, password);
+        if (r && r.error)          showRegErr(r.error);
+        else if (r && r.needsConfirm) showRegErr('注册成功，请查收确认邮件');
+      } catch (_) {
+        showRegErr('注册失败，请重试');
+      } finally {
+        btnDoRegister.disabled = false;
+      }
+    };
+
+    /* ── 登录 ── */
     if (btnLogin) btnLogin.onclick = async () => {
-      showErr('');
-      const email = (emailIn && emailIn.value || '').trim();
-      const password = (passIn && passIn.value) || '';
-      if (!email || !password) { showErr('请填邮箱和密码'); return; }
-      if (!isValidEmail(email)) { showErr('邮箱格式不正确'); return; }
+      showLoginErr('');
+      const email    = (emailIn && emailIn.value || '').trim();
+      const password = (passIn  && passIn.value) || '';
+      if (!email || !password) { showLoginErr('请填邮箱和密码'); return; }
+      if (!isValidEmail(email)) { showLoginErr('邮箱格式不正确'); return; }
       const r = await loginWithEmail(email, password);
-      if (r && r.error) showErr(r.error);
+      if (r && r.error) showLoginErr(r.error);
     };
-    if (btnReg) btnReg.onclick = async () => {
-      showErr('');
-      const email = (emailIn && emailIn.value || '').trim();
-      const password = (passIn && passIn.value) || '';
-      if (!email || password.length < 6) { showErr('密码至少 6 位'); return; }
-      if (!isValidEmail(email)) { showErr('邮箱格式不正确'); return; }
-      const r = await registerWithEmail(email, password);
-      if (r && r.error) showErr(r.error);
-      else if (r && r.needsConfirm) showErr('已发送确认邮件，请查收');
-    };
+
     if (btnGuest) btnGuest.onclick = enterGuestMode;
 
     [emailIn, passIn].forEach(el => el && el.addEventListener('keydown', e => {
