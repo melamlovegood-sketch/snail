@@ -2495,7 +2495,7 @@ textarea.api-input {
   }, 5000);
 })();
 
-const QWEN_URL = '/api/qwen';
+const QWEN_URL = 'https://snail-api.friday0.top/api/qwen';
 function getAiConfig() {
   try { const r = localStorage.getItem('aiConfig'); if (r) return JSON.parse(r); } catch(_) {}
   return { provider: 'qwen', apiKey: '', model: 'qwen-plus' };

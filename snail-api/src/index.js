@@ -145,6 +145,8 @@ function buildIcs(tasks, r1 = 15, r2 = 0) {
 
 export default {
   async fetch(request, env) {
+    console.log('Worker received:', request.method, request.url);
+
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS });
     }
@@ -170,6 +172,10 @@ export default {
       return handleVerifyCode(request, env);
     }
 
+    if (url.pathname === '/api/qwen') {
+      return handleQwen(request, env);
+    }
+
     return new Response('Not found', { status: 404, headers: CORS });
   },
 };
@@ -193,7 +199,7 @@ async function handleIcal(token, url, env) {
   const userId = users[0].id;
 
   const tasksResp = await sbFetch(env,
-    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date,reminder_enabled,reminder_override`
+    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date`
   );
   if (!tasksResp.ok) return new Response('Server error', { status: 500 });
   const tasks = await tasksResp.json();
@@ -245,6 +251,92 @@ async function handleSendCode(request, env) {
   }
 
   return jsonResp({ success: true });
+}
+
+async function handleQwen(request, env) {
+  let body;
+  try { body = await request.json(); } catch (_) {
+    return jsonResp({ error: '请求格式错误' }, 400);
+  }
+
+  const { provider = 'qwen', apiKey: clientKey, ...rest } = body;
+
+  const envKey = env[`${provider.toUpperCase()}_API_KEY`] || '';
+  const apiKey = (clientKey && clientKey.trim()) ? clientKey.trim() : envKey;
+
+  const openaiEndpoints = {
+    qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+    deepseek: 'https://api.deepseek.com/chat/completions',
+    openai: 'https://api.openai.com/v1/chat/completions',
+  };
+
+  if (openaiEndpoints[provider]) {
+    const upstream = await fetch(openaiEndpoints[provider], {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify(rest),
+    });
+    const data = await upstream.json();
+    return jsonResp(data, upstream.status);
+  }
+
+  if (provider === 'claude') {
+    const { model, messages, max_tokens = 1024 } = rest;
+    let system;
+    let msgs = messages;
+    if (messages[0]?.role === 'system') {
+      system = messages[0].content;
+      msgs = messages.slice(1);
+    }
+    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({ model, max_tokens, messages: msgs, ...(system ? { system } : {}) }),
+    });
+    const data = await upstream.json();
+    return jsonResp({
+      choices: [{ message: { role: 'assistant', content: data.content?.[0]?.text || '' }, finish_reason: data.stop_reason || 'stop' }],
+      usage: data.usage,
+    }, upstream.status);
+  }
+
+  if (provider === 'gemini') {
+    const { model, messages, max_tokens = 1024 } = rest;
+    let systemInstruction;
+    let msgs = messages;
+    if (messages[0]?.role === 'system') {
+      systemInstruction = { parts: [{ text: messages[0].content }] };
+      msgs = messages.slice(1);
+    }
+    const contents = msgs.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: Array.isArray(m.content)
+        ? m.content.map(c =>
+            c.type === 'image_url'
+              ? { inlineData: { mimeType: c.image_url.url.split(';')[0].split(':')[1], data: c.image_url.url.split(',')[1] } }
+              : { text: c.text })
+        : [{ text: m.content }],
+    }));
+    const upstream = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents, ...(systemInstruction ? { systemInstruction } : {}), generationConfig: { maxOutputTokens: max_tokens } }),
+      }
+    );
+    const data = await upstream.json();
+    return jsonResp({
+      choices: [{ message: { role: 'assistant', content: data.candidates?.[0]?.content?.parts?.[0]?.text || '' }, finish_reason: data.candidates?.[0]?.finishReason || 'stop' }],
+      usage: { prompt_tokens: data.usageMetadata?.promptTokenCount, completion_tokens: data.usageMetadata?.candidatesTokenCount },
+    }, upstream.status);
+  }
+
+  return jsonResp({ error: 'Unknown provider: ' + provider }, 400);
 }
 
 async function handleVerifyCode(request, env) {
