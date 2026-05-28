@@ -2146,7 +2146,7 @@ textarea.api-input {
 const QWEN_API_KEY = 'YOUR_API_KEY_HERE'; // ← 用户在此填写 通义千问 API Key
 const QWEN_MODEL_VL = 'qwen-vl-plus';   // 图片解析（视觉模型）
 const QWEN_MODEL_TEXT = 'qwen-plus';    // 文字处理（总结分析）
-const QWEN_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+const QWEN_URL = '/api/qwen';
 // 获取 API Key：https://dashscope.console.aliyun.com/
 
 /* ---------------- 全局状态 ---------------- */
@@ -3893,7 +3893,6 @@ async function handleImageUpload(file) {
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -5111,7 +5110,7 @@ order 的排序原则：高优先级 + 有 startTime 的按时间排 + 拖延久
   try {
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: QWEN_MODEL_TEXT,
         max_tokens: 1024,
@@ -5221,7 +5220,7 @@ B) 新任务格式：
   try {
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: QWEN_MODEL_TEXT,
         max_tokens: 2048,
@@ -5384,7 +5383,7 @@ async function decomposeTask(taskId) {
   try {
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: QWEN_MODEL_TEXT,
         max_tokens: 1024,
@@ -6006,7 +6005,7 @@ async function fetchBatchDeferAILine() {
 
   const resp = await fetch(QWEN_URL, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: QWEN_MODEL_TEXT,
       max_tokens: 80,
@@ -6471,7 +6470,6 @@ async function aiSummary(view) {
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -6718,7 +6716,7 @@ async function startCheckIn() {
   try {
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: QWEN_MODEL_TEXT,
         max_tokens: 256,
@@ -6792,7 +6790,6 @@ async function sendChatMessage(text) {
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
