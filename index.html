@@ -1991,6 +1991,178 @@ textarea.api-input {
   word-break: break-word;
 }
 [data-theme="dark"] .reality-modal .reality-task-name { color: var(--accent); }
+
+/* ===================== 新手引导 ===================== */
+.guide-overlay-part {
+  position: fixed;
+  background: rgba(0,0,0,0.5);
+  z-index: 9990;
+  pointer-events: all;
+}
+.guide-highlight-ring {
+  position: fixed;
+  border: 2px solid #9B6B3F;
+  border-radius: 8px;
+  z-index: 9991;
+  pointer-events: none;
+}
+.guide-skip {
+  position: fixed;
+  top: calc(16px + env(safe-area-inset-top));
+  right: 16px;
+  z-index: 9998;
+  font-size: 11px;
+  color: #7A766F;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px 4px;
+  pointer-events: all;
+}
+.guide-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9995;
+  background: #FAF9F6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 32px;
+  text-align: center;
+  pointer-events: all;
+}
+[data-theme="dark"] .guide-fullscreen { background: #1C1A17; }
+.guide-fullscreen-snail { margin-bottom: 24px; }
+.guide-fullscreen-title {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 22px;
+  color: #2B2926;
+  margin: 0 0 14px;
+  line-height: 1.4;
+}
+[data-theme="dark"] .guide-fullscreen-title { color: #EBE7E0; }
+.guide-fullscreen-body {
+  font-size: 15px;
+  color: #7A766F;
+  line-height: 1.8;
+  margin: 0 0 6px;
+}
+.guide-fullscreen-sub {
+  font-size: 12px;
+  color: #B8B3AB;
+  margin: 0 0 36px;
+}
+.guide-fullscreen-btn {
+  display: inline-block;
+  padding: 10px 28px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 6px;
+  font-size: 14px;
+  color: #2B2926;
+  background: none;
+  cursor: pointer;
+}
+[data-theme="dark"] .guide-fullscreen-btn { color: #EBE7E0; border-color: rgba(255,255,255,0.12); }
+.guide-tooltip {
+  position: fixed;
+  z-index: 9995;
+  background: #FFFFFF;
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 8px;
+  padding: 14px 14px 12px;
+  max-width: 280px;
+  width: calc(100vw - 32px);
+  pointer-events: all;
+}
+[data-theme="dark"] .guide-tooltip { background: #262320; border-color: rgba(255,255,255,0.06); }
+.guide-tooltip-arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.guide-tooltip-arrow.arr-down {
+  bottom: -7px;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 7px solid #FFFFFF;
+}
+[data-theme="dark"] .guide-tooltip-arrow.arr-down { border-top-color: #262320; }
+.guide-tooltip-arrow.arr-up {
+  top: -7px;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 7px solid #FFFFFF;
+}
+[data-theme="dark"] .guide-tooltip-arrow.arr-up { border-bottom-color: #262320; }
+.guide-tooltip-title {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 15px;
+  color: #2B2926;
+  margin: 0 0 6px;
+}
+[data-theme="dark"] .guide-tooltip-title { color: #EBE7E0; }
+.guide-tooltip-body {
+  font-size: 13px;
+  color: #7A766F;
+  line-height: 1.6;
+  margin: 0 0 12px;
+  white-space: pre-line;
+}
+.guide-dots {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+.guide-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #E0DDD8;
+}
+.guide-dot.active { background: #9B6B3F; }
+.guide-btn-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.guide-btn-prev {
+  font-size: 13px;
+  color: #7A766F;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.guide-btn-next {
+  font-size: 13px;
+  color: #2B2926;
+  font-weight: 500;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+}
+[data-theme="dark"] .guide-btn-next { color: #EBE7E0; }
+.guide-swipe-finger {
+  position: fixed;
+  z-index: 9996;
+  font-size: 22px;
+  pointer-events: none;
+  transform: translateX(0) translateY(-50%);
+  animation: guide-swipe-left 1.8s ease-in-out infinite;
+}
+@keyframes guide-swipe-left {
+  0%   { transform: translateX(0) translateY(-50%); opacity: 1; }
+  45%  { transform: translateX(-32px) translateY(-50%); opacity: 0.5; }
+  50%  { transform: translateX(-32px) translateY(-50%); opacity: 0; }
+  51%  { transform: translateX(0) translateY(-50%); opacity: 0; }
+  65%  { transform: translateX(0) translateY(-50%); opacity: 1; }
+  100% { transform: translateX(0) translateY(-50%); opacity: 1; }
+}
 </style>
 </head>
 <body>
@@ -6938,6 +7110,17 @@ function renderSettings() {
       </div>
     </div>
 
+    <div class="section-title">关于</div>
+    <div class="settings-section">
+      <div class="settings-row">
+        <div>
+          <div class="label">重新查看新手引导</div>
+          <div class="desc">从头了解 Snail 的核心功能</div>
+        </div>
+        <button class="btn-secondary" onclick="window.startOnboarding && window.startOnboarding()">查看</button>
+      </div>
+    </div>
+
     <div class="text-xs text-faint" style="text-align:center; padding:24px 0 12px 0">
       Chronos Butler · 个人时间管理
     </div>
@@ -7464,6 +7647,286 @@ window.archiveMemo = archiveMemo;
 window.memoToTask = memoToTask;
 window.toggleMemoCollapsed = toggleMemoCollapsed;
 window.showTimeLabelInfo = showTimeLabelInfo;
+
+/* ===================== 新手引导 ===================== */
+(function () {
+  'use strict';
+
+  function makeSnailSVG(w, h) {
+    var sp = '';
+    try { if (typeof makeSpiralPath === 'function') sp = makeSpiralPath(75, 50, 20, 3, 2.5, 120); } catch (_) {}
+    return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 120 100" xmlns="http://www.w3.org/2000/svg">'
+      + '<path d="M 32 32 Q 8 32 8 55 Q 8 75 28 75 L 72 75" fill="none" stroke="#6B4C2A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
+      + '<path d="' + sp + '" fill="none" stroke="#6B4C2A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
+      + '<circle cx="14" cy="22" r="2" fill="#6B4C2A"/>'
+      + '<circle cx="25" cy="19" r="2" fill="#6B4C2A"/>'
+      + '</svg>';
+  }
+
+  var STEPS = [
+    { type: 'full', n: 1 },
+    { type: 'tip', n: 2, tab: 'today', sel: '.cat-tag',
+      title: '给每件事找到位置',
+      body: 'S学习  R科研  G成长  C杂事\n四个分类，覆盖生活的全部。' },
+    { type: 'tip', n: 3, tab: null, sel: '.pri-edge',
+      title: '一眼看出轻重缓急',
+      body: '左侧颜色条代表优先级\n颜色越深，越需要先做。' },
+    { type: 'tip', n: 4, tab: 'plans', sel: '.input-bar',
+      title: '加任务很简单',
+      body: '手动输入，或截图发给AI\n它帮你解析成结构化任务。' },
+    { type: 'tip', n: 5, tab: 'today', sel: '.focus-block',
+      title: '今天最重要的三件事',
+      body: '把任务pin在这里，最多3个\n先做完它们，其他都是次要的。' },
+    { type: 'tip', n: 6, tab: 'today', sel: '#today-list .task-card',
+      title: '今天做不完？左滑',
+      body: '选明天、后天或下周一\n同一任务推迟3次会有特别提示。',
+      swipe: true },
+    { type: 'tip', n: 7, tab: 'today', sel: '.day-end-btn',
+      title: '可以体面地收工',
+      body: '把非紧急任务一键移到明天\n不是放弃，是量力而行。',
+      scrollBottom: true },
+    { type: 'tip', n: 8, tab: 'stats', sel: '.snail-journey-mileage',
+      title: '每一步都算数',
+      body: '完成任务蜗牛就往前爬\n累积里程解锁成就，慢慢来。',
+      delay: 280 },
+    { type: 'full', n: 9 },
+  ];
+
+  var cur = 0;
+  var guideActive = false;
+  var renderGen = 0;
+  var parts = [];
+  var ring = null;
+  var tipEl = null;
+  var fullEl = null;
+  var skipBtn = null;
+  var fingerEl = null;
+
+  function mkEl(tag, cls) {
+    var d = document.createElement(tag);
+    if (cls) d.className = cls;
+    return d;
+  }
+
+  function cleanup() {
+    [ring, tipEl, fullEl, fingerEl].forEach(function (e) { if (e) e.remove(); });
+    ring = tipEl = fullEl = fingerEl = null;
+    parts.forEach(function (e) { e.remove(); });
+    parts = [];
+  }
+
+  function mkParts() {
+    for (var i = 0; i < 4; i++) {
+      var d = mkEl('div', 'guide-overlay-part');
+      document.body.appendChild(d);
+      parts.push(d);
+    }
+  }
+
+  function posParts(r) {
+    var W = window.innerWidth, H = window.innerHeight, pad = 5;
+    var l = Math.max(0, r.left - pad);
+    var t = Math.max(0, r.top - pad);
+    var ri = Math.min(W, r.right + pad);
+    var b = Math.min(H, r.bottom + pad);
+    parts[0].style.cssText = 'left:0;top:0;width:' + W + 'px;height:' + t + 'px';
+    parts[1].style.cssText = 'left:0;top:' + b + 'px;width:' + W + 'px;height:' + (H - b) + 'px';
+    parts[2].style.cssText = 'left:0;top:' + t + 'px;width:' + l + 'px;height:' + (b - t) + 'px';
+    parts[3].style.cssText = 'left:' + ri + 'px;top:' + t + 'px;width:' + (W - ri) + 'px;height:' + (b - t) + 'px';
+    if (ring) {
+      ring.style.left = l + 'px'; ring.style.top = t + 'px';
+      ring.style.width = (ri - l) + 'px'; ring.style.height = (b - t) + 'px';
+    }
+  }
+
+  function fullParts() {
+    var W = window.innerWidth, H = window.innerHeight;
+    parts[0].style.cssText = 'left:0;top:0;width:' + W + 'px;height:' + H + 'px';
+    [1, 2, 3].forEach(function (i) { parts[i].style.cssText = 'left:0;top:0;width:0;height:0'; });
+  }
+
+  function dotsHTML(active) {
+    var h = '<div class="guide-dots">';
+    for (var i = 0; i < 9; i++) h += '<div class="guide-dot' + (i === active ? ' active' : '') + '"></div>';
+    return h + '</div>';
+  }
+
+  function switchTab(tab) {
+    var btn = document.querySelector('.tab[data-tab="' + tab + '"]');
+    if (btn) btn.click();
+  }
+
+  function posTip(r) {
+    var W = window.innerWidth;
+    var tipW = Math.min(280, W - 32);
+    tipEl.style.width = tipW + 'px';
+    var cx = r ? (r.left + r.right) / 2 : W / 2;
+    var left = Math.max(16, Math.min(cx - tipW / 2, W - tipW - 16));
+    tipEl.style.left = left + 'px';
+    var arrowEl = tipEl.querySelector('.guide-tooltip-arrow');
+    var tipH = 175;
+    if (r && r.top > tipH + 20) {
+      tipEl.style.top = Math.max(8, r.top - tipH - 14) + 'px';
+      if (arrowEl) arrowEl.className = 'guide-tooltip-arrow arr-down';
+    } else {
+      var topV = r ? r.bottom + 14 : (window.innerHeight / 2 - tipH / 2);
+      tipEl.style.top = Math.min(topV, window.innerHeight - tipH - 8) + 'px';
+      if (arrowEl) arrowEl.className = 'guide-tooltip-arrow arr-up';
+    }
+  }
+
+  function drawTip(step, targetEl, gen) {
+    if (!guideActive || gen !== renderGen) return;
+    var r = null;
+    if (targetEl) {
+      r = targetEl.getBoundingClientRect();
+      if (!r || r.width === 0) r = null;
+    }
+    mkParts();
+    if (r) {
+      ring = mkEl('div', 'guide-highlight-ring');
+      document.body.appendChild(ring);
+      posParts(r);
+    } else {
+      fullParts();
+    }
+    var idx = cur;
+    var hidePrev = idx <= 1;
+    tipEl = mkEl('div', 'guide-tooltip');
+    tipEl.innerHTML = '<div class="guide-tooltip-arrow"></div>'
+      + '<div class="guide-tooltip-title">' + step.title + '</div>'
+      + '<div class="guide-tooltip-body">' + step.body + '</div>'
+      + dotsHTML(idx)
+      + '<div class="guide-btn-row">'
+      + '<button class="guide-btn-prev"' + (hidePrev ? ' style="visibility:hidden"' : '') + ' id="g-prev">← 上一步</button>'
+      + '<button class="guide-btn-next" id="g-next">下一步 →</button>'
+      + '</div>';
+    document.body.appendChild(tipEl);
+    posTip(r);
+    document.getElementById('g-prev').onclick = prev;
+    document.getElementById('g-next').onclick = next;
+    if (step.swipe && r) {
+      fingerEl = mkEl('div', 'guide-swipe-finger');
+      fingerEl.textContent = '👆';
+      fingerEl.style.left = (r.right - 28) + 'px';
+      fingerEl.style.top = ((r.top + r.bottom) / 2) + 'px';
+      document.body.appendChild(fingerEl);
+    }
+  }
+
+  function renderTip(step, gen) {
+    var needSwitch = step.tab && typeof currentTab !== 'undefined' && currentTab !== step.tab;
+    if (needSwitch) switchTab(step.tab);
+    var delay = step.delay || (needSwitch ? 240 : 0);
+
+    var doIt = function () {
+      if (!guideActive || gen !== renderGen) return;
+      var doRender = function () {
+        if (!guideActive || gen !== renderGen) return;
+        var el = document.querySelector(step.sel);
+        if (el) el.scrollIntoView({ block: 'center', behavior: 'instant' });
+        drawTip(step, el, gen);
+      };
+      if (step.scrollBottom) {
+        window.scrollTo(0, document.body.scrollHeight);
+        setTimeout(function () {
+          if (!guideActive || gen !== renderGen) return;
+          drawTip(step, document.querySelector(step.sel), gen);
+        }, 200);
+      } else {
+        doRender();
+      }
+    };
+
+    if (delay > 0) setTimeout(doIt, delay); else doIt();
+  }
+
+  function renderFull(step) {
+    mkParts();
+    fullParts();
+    fullEl = mkEl('div', 'guide-fullscreen');
+    if (step.n === 1) {
+      fullEl.innerHTML = '<div class="guide-fullscreen-snail">' + makeSnailSVG(80, 66) + '</div>'
+        + '<h2 class="guide-fullscreen-title">欢迎来到 Snail</h2>'
+        + '<p class="guide-fullscreen-body">不是要你做更多<br>是要你做得更踏实</p>'
+        + '<p class="guide-fullscreen-sub">Slow down &amp; Get things done</p>'
+        + '<button class="guide-fullscreen-btn" id="gf-btn">开始了解 →</button>';
+    } else {
+      fullEl.innerHTML = '<div class="guide-fullscreen-snail">' + makeSnailSVG(80, 66) + '</div>'
+        + '<h2 class="guide-fullscreen-title">蜗牛已就位</h2>'
+        + '<p class="guide-fullscreen-body">慢慢来，比较快。</p>'
+        + '<button class="guide-fullscreen-btn" id="gf-btn">开始使用</button>';
+    }
+    document.body.appendChild(fullEl);
+    var btn = document.getElementById('gf-btn');
+    if (btn) btn.onclick = next;
+  }
+
+  function render() {
+    if (!guideActive) return;
+    var gen = ++renderGen;
+    cleanup();
+    var step = STEPS[cur];
+    var isLast = step.n === 9;
+    if (!skipBtn) {
+      skipBtn = mkEl('button', 'guide-skip');
+      skipBtn.textContent = '跳过';
+      skipBtn.onclick = function () { cur = 8; render(); };
+      document.body.appendChild(skipBtn);
+    }
+    skipBtn.style.display = isLast ? 'none' : '';
+    if (step.type === 'full') renderFull(step);
+    else renderTip(step, gen);
+  }
+
+  function next() {
+    if (cur >= STEPS.length - 1) { finish(); return; }
+    cur++;
+    render();
+  }
+
+  function prev() {
+    if (cur <= 0) return;
+    cur--;
+    render();
+  }
+
+  function finish() {
+    guideActive = false;
+    cleanup();
+    if (skipBtn) { skipBtn.remove(); skipBtn = null; }
+    try { localStorage.setItem('snail_guide_done', 'true'); } catch (_) {}
+  }
+
+  function startGuide() {
+    guideActive = true;
+    cur = 0;
+    cleanup();
+    if (skipBtn) { skipBtn.remove(); skipBtn = null; }
+    render();
+  }
+
+  window.startOnboarding = function () {
+    try { localStorage.removeItem('snail_guide_done'); } catch (_) {}
+    startGuide();
+  };
+
+  setTimeout(function () {
+    try { if (localStorage.getItem('snail_guide_done')) return; } catch (_) { return; }
+    var authOv = document.getElementById('auth-overlay');
+    if (authOv && !authOv.classList.contains('hidden')) {
+      var obs = new MutationObserver(function () {
+        if (authOv.classList.contains('hidden')) {
+          obs.disconnect();
+          setTimeout(startGuide, 600);
+        }
+      });
+      obs.observe(authOv, { attributes: true, attributeFilter: ['class'] });
+    } else {
+      startGuide();
+    }
+  }, 2700);
+})();
 </script>
 </body>
 </html>
