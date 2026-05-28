@@ -1552,6 +1552,18 @@ textarea.api-input {
   align-items: center;
   gap: 12px;
 }
+.snail-status-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.snail-state-text {
+  font-size: 12px;
+  color: #7A766F;
+  white-space: nowrap;
+}
+[data-theme="dark"] .snail-state-text { color: var(--text-soft); }
 .snail-status {
   width: 32px;
   height: 32px;
@@ -1594,6 +1606,127 @@ textarea.api-input {
   0% { transform: scale(0); }
   60% { transform: scale(1.15); }
   100% { transform: scale(1); }
+}
+
+/* ===================== 成就弹窗 ===================== */
+.achievement-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(43,41,38,0.30);
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+[data-theme="dark"] .achievement-modal-backdrop { background: rgba(0,0,0,0.55); }
+.achievement-modal {
+  background: var(--bg-elev);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 32px 28px 24px;
+  max-width: 320px;
+  width: 100%;
+  text-align: center;
+}
+.achievement-modal .ach-icon { font-size: 32px; margin-bottom: 12px; }
+.achievement-modal .ach-name {
+  font-family: 'Noto Serif SC', 'Songti SC', serif;
+  font-size: 18px;
+  color: #2B2926;
+  margin-bottom: 20px;
+}
+[data-theme="dark"] .achievement-modal .ach-name { color: var(--text); }
+.achievement-modal .ach-km {
+  font-size: 16px;
+  color: #2B2926;
+  margin-bottom: 4px;
+}
+[data-theme="dark"] .achievement-modal .ach-km { color: var(--text); }
+.achievement-modal .ach-real {
+  font-size: 13px;
+  color: #7A766F;
+  margin-bottom: 16px;
+}
+.achievement-modal .ach-snail-time {
+  font-size: 12px;
+  color: #9B6B3F;
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+.achievement-modal .ach-quote {
+  font-size: 13px;
+  color: #7A766F;
+  font-style: italic;
+  margin-bottom: 24px;
+  line-height: 1.7;
+}
+.achievement-modal .ach-dismiss {
+  font-size: 14px;
+  color: #2B2926;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px 16px;
+  font-family: inherit;
+}
+[data-theme="dark"] .achievement-modal .ach-dismiss { color: var(--text); }
+
+/* ===================== 成就墙（统计页底部）===================== */
+.achievement-wall {
+  margin-top: 24px;
+}
+.achievement-wall-title {
+  font-family: 'Noto Serif SC', 'Songti SC', serif;
+  font-size: 16px;
+  color: #2B2926;
+  margin-bottom: 6px;
+}
+[data-theme="dark"] .achievement-wall-title { color: var(--text); }
+.achievement-wall-mileage {
+  font-size: 13px;
+  color: #7A766F;
+  text-align: center;
+  margin-bottom: 16px;
+}
+.achievement-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px 8px;
+}
+.achievement-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.achievement-item .ach-item-icon {
+  font-size: 26px;
+  line-height: 1;
+}
+.achievement-item.locked .ach-item-icon {
+  filter: grayscale(1);
+  opacity: 0.35;
+}
+.achievement-item .ach-item-name {
+  font-size: 12px;
+  color: #7A766F;
+  text-align: center;
+  line-height: 1.3;
+}
+.achievement-item.locked .ach-item-name {
+  color: #B8B3AB;
+}
+.achievement-item-detail {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: #7A766F;
+  line-height: 1.6;
+  padding: 8px 10px;
+  background: var(--bg-soft);
+  border-radius: 6px;
+  text-align: left;
 }
 
 /* ===================== 蜗牛旅程（统计页顶部）===================== */
@@ -1909,7 +2042,10 @@ textarea.api-input {
   <!-- Header -->
   <div class="header">
     <div class="header-title-row">
-      <div id="snail-status" class="snail-status" aria-label="今日蜗牛状态"></div>
+      <div class="snail-status-group">
+        <div id="snail-status" class="snail-status" aria-label="今日蜗牛状态"></div>
+        <span id="snail-state-text" class="snail-state-text"></span>
+      </div>
       <div>
         <h1 id="page-title">全部计划</h1>
         <div class="date" id="header-date"></div>
@@ -2192,10 +2328,20 @@ function computeTodayCompletionRate() {
 function getSnailState(rate) {
   if (rate <= 0) return 'sleeping';
   if (rate >= 1) return 'bloom';
-  if (rate <= 0.30) return 'peek';
-  if (rate <= 0.60) return 'start';
-  return 'speed';
+  if (rate <= 0.25) return 'peek';
+  if (rate <= 0.50) return 'start';
+  if (rate <= 0.75) return 'speed';
+  return 'near';
 }
+
+const SNAIL_STATE_LABELS = {
+  sleeping: '睡觉中',
+  peek: '探头了',
+  start: '出发了',
+  speed: '加速中',
+  near: '快到了',
+  bloom: '开花了',
+};
 
 /* 五个蜗牛 SVG 状态：32x32 viewBox，#6B4C2A 线条
  * 风格：阿基米德螺旋（用三层同心圆稳定呈现）+ 左侧括号曲线（身体底部）+ 触角圆点 */
@@ -2250,6 +2396,22 @@ function snailStatusSVG(name) {
       <line x1="30.5" y1="17" x2="31.8" y2="12.5" />
       <circle cx="27" cy="10.3" r="1" fill="${c}" stroke="none" />
       <circle cx="31.9" cy="11.8" r="1" fill="${c}" stroke="none" />
+    </svg>`;
+  }
+  if (name === 'near') {
+    return `<svg ${common}>
+      <path d="M 3 14 Q 4.5 13 6 14" opacity="0.55" stroke-width="1.2" />
+      <path d="M 3 20 Q 4.5 19 6 20" opacity="0.55" stroke-width="1.2" />
+      <path d="M 8 24 Q 15 26.5 22 24 Q 28 22 30.5 18" />
+      <circle cx="15" cy="17" r="6" />
+      <circle cx="15.6" cy="17.6" r="3.3" />
+      <circle cx="16.1" cy="18.1" r="1.2" />
+      <path d="M 23 21 Q 28 21.5 30.5 17" />
+      <line x1="28" y1="15" x2="28" y2="10" />
+      <line x1="31.5" y1="16" x2="32.5" y2="11.5" />
+      <circle cx="28" cy="9.3" r="1" fill="${c}" stroke="none" />
+      <circle cx="32.6" cy="10.8" r="1" fill="${c}" stroke="none" />
+      <text x="2" y="9" font-size="5" fill="${c}" stroke="none" font-style="italic" font-family="Georgia, serif">!</text>
     </svg>`;
   }
   // bloom：满分开花
@@ -2323,11 +2485,14 @@ function updateSnailStatus(forceImmediate) {
     });
   }
   _prevSnailState = newState;
+  const textEl = document.getElementById('snail-state-text');
+  if (textEl) textEl.textContent = SNAIL_STATE_LABELS[newState] || '';
 }
 
 /* 完成任务时调用：按分类加里程 + 计算 100% 奖励 + streak 奖励 */
 function awardMileageOnComplete(task) {
   const today = todayStr();
+  const prevTotal = snailMileage.total;
   if (!snailMileage.dailyLog[today]) {
     snailMileage.dailyLog[today] = { earned: 0, completionRate: 0, bonusGiven: false, streakBonusGiven: false };
   }
@@ -2360,6 +2525,7 @@ function awardMileageOnComplete(task) {
   }
 
   saveSnailMileage(snailMileage);
+  checkAndUnlockAchievements(prevTotal, snailMileage.total);
 }
 
 /* 取消完成时调用：只更新当日完成率，不退还里程 */
@@ -2384,6 +2550,128 @@ function computeMileageStreak() {
     }
   }
   return streak;
+}
+
+/* ============== 成就系统 ============== */
+const SNAIL_MILESTONES = [
+  { id: 'km_1',     km: 1,     icon: '🌱', name: '壳里的世界',   real: '绕操场3圈',          quote: '出发了，这就够了。' },
+  { id: 'km_10',    km: 10,    icon: '🪨', name: '慢慢有意思',   real: '八达岭长城全程',      quote: '慢，是因为每一步都算数。' },
+  { id: 'km_30',    km: 30,    icon: '🌙', name: '穿越一座城',   real: '上海内环绕一圈',      quote: '没有捷径，但有风景。' },
+  { id: 'km_100',   km: 100,   icon: '☁️', name: '沪苏之间',     real: '上海到苏州',          quote: '你比你以为的更能坚持。' },
+  { id: 'km_300',   km: 300,   icon: '⛰️', name: '来回折返跑',   real: '北京到天津再回来',    quote: '折返不是退步，是见过了才回来。' },
+  { id: 'km_500',   km: 500,   icon: '🌊', name: '蜀道不再难',   real: '成都到重庆再回来',    quote: '蜀道难，但蜗牛不知道这件事。' },
+  { id: 'km_1000',  km: 1000,  icon: '⭐', name: '京沪全程',     real: '高铁要4.5小时',       quote: '高铁4.5小时，你用了更长时间，也更诚实。' },
+  { id: 'km_2000',  km: 2000,  icon: '🌅', name: '大半个中国',   real: '北京到广州',          quote: '大半个中国，一件事一件事做到的。' },
+  { id: 'km_5000',  km: 5000,  icon: '🌍', name: '丝绸之路',     real: '西安到罗马的一半',    quote: '速度从不是重点。' },
+  { id: 'km_10000', km: 10000, icon: '🌌', name: '地球四分之一', real: '北京到布宜诺斯艾利斯', quote: '地球是圆的，蜗牛终究会回到原点，但已经不同了。' },
+];
+
+function loadSnailAchievements() {
+  let raw;
+  try { raw = localStorage.getItem('snail_achievements'); } catch(_) { raw = null; }
+  if (!raw) return { unlocked: [] };
+  try {
+    const obj = JSON.parse(raw);
+    if (!obj || !Array.isArray(obj.unlocked)) return { unlocked: [] };
+    return obj;
+  } catch(_) { return { unlocked: [] }; }
+}
+function saveSnailAchievements(a) {
+  try { localStorage.setItem('snail_achievements', JSON.stringify(a)); } catch(_) {}
+}
+let snailAchievements = loadSnailAchievements();
+
+function checkAndUnlockAchievements(prevTotal, newTotal) {
+  const today = todayStr();
+  let newlyUnlocked = [];
+  SNAIL_MILESTONES.forEach(m => {
+    if (prevTotal < m.km && newTotal >= m.km) {
+      const alreadyUnlocked = snailAchievements.unlocked.some(u => u.id === m.id);
+      if (!alreadyUnlocked) {
+        snailAchievements.unlocked.push({ id: m.id, unlockedAt: today });
+        newlyUnlocked.push(m);
+      }
+    }
+  });
+  if (newlyUnlocked.length > 0) {
+    saveSnailAchievements(snailAchievements);
+    // 顺序显示，每个弹窗关闭后再显示下一个
+    let idx = 0;
+    function showNext() {
+      if (idx < newlyUnlocked.length) showAchievementModal(newlyUnlocked[idx++], showNext);
+    }
+    showNext();
+  }
+}
+
+function showAchievementModal(milestone, onClose) {
+  const km = milestone.km;
+  const snailHours = Math.round(km / 0.05).toLocaleString('zh-CN');
+  const backdrop = document.createElement('div');
+  backdrop.className = 'achievement-modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="achievement-modal">
+      <div class="ach-icon">${milestone.icon}</div>
+      <div class="ach-name">${milestone.name}</div>
+      <div class="ach-km">你爬了 ${km}km</div>
+      <div class="ach-real">相当于${milestone.real}</div>
+      <div class="ach-snail-time">蜗牛时速0.05km<br>你相当于它爬了 ${snailHours} 小时</div>
+      <div class="ach-quote">「${milestone.quote}」</div>
+      <button class="ach-dismiss">知道了</button>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  backdrop.querySelector('.ach-dismiss').onclick = () => {
+    backdrop.remove();
+    if (onClose) onClose();
+  };
+  backdrop.onclick = (e) => {
+    if (e.target === backdrop) { backdrop.remove(); if (onClose) onClose(); }
+  };
+}
+
+function renderAchievementWallHTML() {
+  const km = Math.round(snailMileage.total);
+  const snailHours = Math.round(km / 0.05).toLocaleString('zh-CN');
+  const itemsHTML = SNAIL_MILESTONES.map(m => {
+    const entry = snailAchievements.unlocked.find(u => u.id === m.id);
+    const locked = !entry;
+    return `<div class="achievement-item${locked ? ' locked' : ''}" data-ach-id="${m.id}">
+      <div class="ach-item-icon">${m.icon}</div>
+      <div class="ach-item-name">${locked ? '???' : m.name}</div>
+    </div>`;
+  }).join('');
+  return `<div class="achievement-wall">
+    <div class="achievement-wall-title">旅程成就</div>
+    <div class="achievement-wall-mileage">累计里程 ${km}km · 相当于蜗牛爬了 ${snailHours} 小时</div>
+    <div class="achievement-grid" id="achievement-grid">${itemsHTML}</div>
+  </div>`;
+}
+
+function initAchievementWallEvents() {
+  const grid = document.getElementById('achievement-grid');
+  if (!grid) return;
+  grid.addEventListener('click', e => {
+    const item = e.target.closest('.achievement-item');
+    if (!item || item.classList.contains('locked')) return;
+    const id = item.dataset.achId;
+    const milestone = SNAIL_MILESTONES.find(m => m.id === id);
+    const entry = snailAchievements.unlocked.find(u => u.id === id);
+    if (!milestone || !entry) return;
+    // 移除已有的展开行（无论属于谁）
+    grid.querySelectorAll('.achievement-item-detail').forEach(el => el.remove());
+    // 如果点的是同一个，只需收起（已经删了），否则展开新的
+    if (item.dataset.expanded === '1') {
+      item.dataset.expanded = '0';
+      return;
+    }
+    grid.querySelectorAll('.achievement-item').forEach(el => { el.dataset.expanded = '0'; });
+    item.dataset.expanded = '1';
+    const detail = document.createElement('div');
+    detail.className = 'achievement-item-detail';
+    detail.textContent = `「${milestone.quote}」 · ${entry.unlockedAt}`;
+    item.after(detail);
+  });
 }
 
 /* 蜗牛旅程：统计页顶部组件 */
@@ -5924,6 +6212,7 @@ function renderStats() {
       </div>
       <div id="ai-result-area"></div>
     </div>
+    ${renderAchievementWallHTML()}
   `;
   main.querySelectorAll('.stat-tabs button').forEach(b => {
     b.onclick = () => { statView = b.dataset.v; renderStats(); };
@@ -5932,6 +6221,7 @@ function renderStats() {
   const tl = document.getElementById('snail-journey-timeline');
   if (tl) tl.scrollLeft = tl.scrollWidth;
   renderStatChart();
+  initAchievementWallEvents();
 }
 
 function getRangeTasks(view) {
