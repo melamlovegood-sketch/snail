@@ -1,5 +1,5 @@
 // ============================================================
-// Service Worker — Daily Planner
+// Service Worker — Snail
 //
 // 部署流程：
 //   1. 修改任何文件
@@ -15,7 +15,7 @@
 //   - 通义千问 API：完全不走 SW，直通
 // ============================================================
 const CACHE_VERSION = '2026.05.27.160125';  // ← 由 bump-version.js 自动注入
-const CACHE_NAME = `daily-planner-${CACHE_VERSION}`;
+const CACHE_NAME = `snail-${CACHE_VERSION}`;
 
 self.addEventListener('install', e => {
   // 立即跳过 waiting 进入 activate，不等待现有 SW 闲下来

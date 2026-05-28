@@ -4,5 +4,9 @@ compatibility_date = "2024-01-01"
 
 [[kv_namespaces]]
 binding = "CODES_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_ID"
+id = "05138daef90d4942af9a623781233198"
+preview_id = "670d49b277fc4c8db3d68e1896b5ac82"
+
+[[routes]]
+pattern = "snail-api.friday0.top/*"
+zone_name = "friday0.top"

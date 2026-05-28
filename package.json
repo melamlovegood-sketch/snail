@@ -1,5 +1,5 @@
 {
-  "name": "daily-planner",
+  "name": "snail",
   "version": "1.0.0",
   "description": "个人时间管理 PWA — 纯前端单页应用",
   "private": true,
@@ -10,6 +10,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/melamlovegood-sketch/daily-planner.git"
+    "url": "https://github.com/melamlovegood-sketch/snail.git"
   }
 }
