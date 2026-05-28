@@ -66,19 +66,55 @@ function buildValarm(minutes) {
   return ['BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:任务提醒', buildTrigger(minutes), 'END:VALARM'].join('\r\n');
 }
 
+function formatTime6(timeStr) {
+  // "HH:MM:SS" or "HH:MM" → "HHMMSS"
+  return timeStr.replace(/:/g, '').slice(0, 6).padEnd(6, '0');
+}
+
+function addOneHour(t6) {
+  const h = (parseInt(t6.slice(0, 2), 10) + 1) % 24;
+  return String(h).padStart(2, '0') + t6.slice(2);
+}
+
+const VTIMEZONE_SHANGHAI = [
+  'BEGIN:VTIMEZONE',
+  'TZID:Asia/Shanghai',
+  'BEGIN:STANDARD',
+  'TZOFFSETFROM:+0800',
+  'TZOFFSETTO:+0800',
+  'TZNAME:CST',
+  'DTSTART:19700101T000000',
+  'END:STANDARD',
+  'END:VTIMEZONE',
+].join('\r\n');
+
 function buildIcs(tasks, r1 = 15, r2 = 0) {
   const now = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z';
   const events = tasks.map(t => {
-    const dt = (t.deadline || '').replace(/-/g, '');
-    if (dt.length !== 8) return '';
+    let dateStr, startT, endT;
+
+    if (t.start_time && t.task_date) {
+      dateStr = t.task_date.replace(/-/g, '');
+      startT = formatTime6(t.start_time);
+      endT = addOneHour(startT);
+    } else if (t.deadline) {
+      dateStr = t.deadline.replace(/-/g, '');
+      startT = '080000';
+      endT = '090000';
+    } else {
+      return '';
+    }
+
+    if (dateStr.length !== 8) return '';
+
     const alarms = [buildValarm(r1)];
     if (r2 > 0) alarms.push(buildValarm(r2));
     const lines = [
       'BEGIN:VEVENT',
       `UID:${t.id}@snail`,
       foldLine(`SUMMARY:${escapeIcs(t.task_desc)}`),
-      `DTSTART:${dt}T000000Z`,
-      `DTEND:${dt}T010000Z`,
+      `DTSTART;TZID=Asia/Shanghai:${dateStr}T${startT}`,
+      `DTEND;TZID=Asia/Shanghai:${dateStr}T${endT}`,
       `DTSTAMP:${now}`,
       ...alarms,
       'END:VEVENT',
@@ -92,6 +128,8 @@ function buildIcs(tasks, r1 = 15, r2 = 0) {
     'PRODID:-//Snail//Snail Tasks//ZH',
     'CALSCALE:GREGORIAN',
     'X-WR-CALNAME:Snail 任务',
+    'X-WR-TIMEZONE:Asia/Shanghai',
+    VTIMEZONE_SHANGHAI,
     ...events,
     'END:VCALENDAR',
   ].join('\r\n');
@@ -147,7 +185,7 @@ async function handleIcal(token, url, env) {
   const userId = users[0].id;
 
   const tasksResp = await sbFetch(env,
-    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&deadline=not.is.null&select=id,task_desc,deadline`
+    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date`
   );
   if (!tasksResp.ok) return new Response('Server error', { status: 500 });
   const tasks = await tasksResp.json();
