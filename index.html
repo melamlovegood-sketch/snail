@@ -4123,9 +4123,9 @@ async function handleImageUpload(file) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        provider: _imgCfg.provider,
-        apiKey: _imgCfg.apiKey,
-        model: _imgCfg.model,
+        provider: 'qwen',
+        apiKey: _imgCfg.provider === 'qwen' ? _imgCfg.apiKey : '',
+        model: 'qwen-vl-plus',
         max_tokens: 4096,
         messages: [
           { role: 'system', content: sysPrompt },
