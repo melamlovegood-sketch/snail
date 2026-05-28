@@ -7299,9 +7299,51 @@ async function sendChatMessage(text) {
   }
 }
 
+/* ---------------- 日历订阅提醒 ---------------- */
+function formatReminderLabel(minutes) {
+  if (!minutes || minutes <= 0) return '提前 15 分钟提醒';
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+  const parts = [];
+  if (days) parts.push(`${days} 天`);
+  if (hours) parts.push(`${hours} 小时`);
+  if (mins) parts.push(`${mins} 分钟`);
+  return parts.length ? `提前 ${parts.join(' ')}提醒` : '提前 0 分钟提醒';
+}
+function icalAddR1(m) {
+  const cur = parseInt(localStorage.getItem('ical_reminder_1') || '15', 10);
+  localStorage.setItem('ical_reminder_1', String(cur + m));
+  renderSettings();
+}
+function icalResetR1() {
+  localStorage.setItem('ical_reminder_1', '15');
+  renderSettings();
+}
+function icalToggleR2(checked) {
+  if (checked) {
+    const cur = parseInt(localStorage.getItem('ical_reminder_2') || '0', 10);
+    if (cur <= 0) localStorage.setItem('ical_reminder_2', '15');
+  } else {
+    localStorage.setItem('ical_reminder_2', '0');
+  }
+  renderSettings();
+}
+function icalAddR2(m) {
+  const cur = Math.max(1, parseInt(localStorage.getItem('ical_reminder_2') || '15', 10));
+  localStorage.setItem('ical_reminder_2', String(cur + m));
+  renderSettings();
+}
+function icalResetR2() {
+  localStorage.setItem('ical_reminder_2', '15');
+  renderSettings();
+}
+
 /* ---------------- 设置 ---------------- */
 function renderSettings() {
   const main = document.getElementById('main');
+  const _icalR1 = parseInt(localStorage.getItem('ical_reminder_1') || '15', 10);
+  const _icalR2 = parseInt(localStorage.getItem('ical_reminder_2') || '0', 10);
   main.innerHTML = `
     <div class="section-title">账号</div>
     <div class="settings-section">
@@ -7346,12 +7388,46 @@ function renderSettings() {
           <div class="label">订阅链接</div>
           <div class="desc">将带截止日期的任务同步到苹果日历、Google 日历等</div>
         </div>
-        <div style="background:var(--bg-alt,#f5f5f5);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;word-break:break-all;color:var(--text-soft);font-family:monospace,sans-serif">https://snail-api.friday0.top/ical/${cloudUser.icalToken}</div>
+        <div style="background:var(--bg-alt,#f5f5f5);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;word-break:break-all;color:var(--text-soft);font-family:monospace,sans-serif">https://snail-api.friday0.top/ical/${cloudUser.icalToken}?r1=${_icalR1}${_icalR2 > 0 ? '&r2='+_icalR2 : ''}</div>
         <div style="display:flex;gap:8px">
           <button class="btn-secondary" id="copy-ical-link" style="flex:1">复制链接</button>
-          <a href="webcal://snail-api.friday0.top/ical/${cloudUser.icalToken}" class="btn-primary" style="flex:1;text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center">添加到苹果日历</a>
+          <a href="webcal://snail-api.friday0.top/ical/${cloudUser.icalToken}?r1=${_icalR1}${_icalR2 > 0 ? '&r2='+_icalR2 : ''}" class="btn-primary" style="flex:1;text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center">添加到苹果日历</a>
         </div>
         <div style="font-size:11px;color:var(--text-faint,#aaa)">苹果日历 → 添加日历 → 订阅日历，粘贴此链接</div>
+      </div>
+    </div>
+    <div class="section-title">提醒时间</div>
+    <div class="settings-section">
+      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div class="label">第一次提醒</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn-secondary" style="font-size:13px;padding:6px 10px" onclick="icalAddR1(1)">+1分钟</button>
+          <button class="btn-secondary" style="font-size:13px;padding:6px 10px" onclick="icalAddR1(15)">+15分钟</button>
+          <button class="btn-secondary" style="font-size:13px;padding:6px 10px" onclick="icalAddR1(60)">+1小时</button>
+          <button class="btn-secondary" style="font-size:13px;padding:6px 10px" onclick="icalAddR1(1440)">+1天</button>
+          <button class="btn-secondary" style="font-size:13px;padding:6px 10px" onclick="icalResetR1()">重置</button>
+        </div>
+        <div style="font-size:13px;color:var(--accent,#4f7cff)">${formatReminderLabel(_icalR1)}</div>
+      </div>
+      <div style="height:1px;background:var(--border);margin:2px 0"></div>
+      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div class="label" style="margin-bottom:0">第二次提醒</div>
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+            <span style="font-size:12px;color:var(--text-soft)">${_icalR2 > 0 ? '已开启' : '已关闭'}</span>
+            <input type="checkbox" onchange="icalToggleR2(this.checked)" ${_icalR2 > 0 ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent,#4f7cff)">
+          </label>
+        </div>
+        ${_icalR2 > 0 ? `
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn-secondary" style="font-size:13px;padding:6px 10px" onclick="icalAddR2(1)">+1分钟</button>
+          <button class="btn-secondary" style="font-size:13px;padding:6px 10px" onclick="icalAddR2(15)">+15分钟</button>
+          <button class="btn-secondary" style="font-size:13px;padding:6px 10px" onclick="icalAddR2(60)">+1小时</button>
+          <button class="btn-secondary" style="font-size:13px;padding:6px 10px" onclick="icalAddR2(1440)">+1天</button>
+          <button class="btn-secondary" style="font-size:13px;padding:6px 10px" onclick="icalResetR2()">重置</button>
+        </div>
+        <div style="font-size:13px;color:var(--accent,#4f7cff)">${formatReminderLabel(_icalR2)}</div>
+        ` : ''}
       </div>
     </div>
     ` : ''}
@@ -7502,7 +7578,7 @@ function renderSettings() {
   const _copyIcal = main.querySelector('#copy-ical-link');
   if (_copyIcal) {
     _copyIcal.onclick = () => {
-      const link = `https://snail-api.friday0.top/ical/${cloudUser.icalToken}`;
+      const link = `https://snail-api.friday0.top/ical/${cloudUser.icalToken}?r1=${_icalR1}${_icalR2 > 0 ? '&r2=' + _icalR2 : ''}`;
       navigator.clipboard.writeText(link).then(() => toast('链接已复制')).catch(() => toast('复制失败，请手动复制'));
     };
   }

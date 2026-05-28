@@ -46,11 +46,33 @@ function foldLine(line) {
   return out.join('\r\n');
 }
 
-function buildIcs(tasks) {
+function buildTrigger(minutes) {
+  const days = Math.floor(minutes / 1440);
+  const rem = minutes % 1440;
+  const hours = Math.floor(rem / 60);
+  const mins = rem % 60;
+  if (days === 0) {
+    if (hours === 0) return `TRIGGER:-PT${mins}M`;
+    return mins === 0 ? `TRIGGER:-PT${hours}H` : `TRIGGER:-PT${hours}H${mins}M`;
+  }
+  const timePart = (hours === 0 && mins === 0) ? '' :
+    mins === 0 ? `T${hours}H` :
+    hours === 0 ? `T${mins}M` :
+    `T${hours}H${mins}M`;
+  return `TRIGGER:-P${days}D${timePart}`;
+}
+
+function buildValarm(minutes) {
+  return ['BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:任务提醒', buildTrigger(minutes), 'END:VALARM'].join('\r\n');
+}
+
+function buildIcs(tasks, r1 = 15, r2 = 0) {
   const now = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z';
   const events = tasks.map(t => {
     const dt = (t.deadline || '').replace(/-/g, '');
     if (dt.length !== 8) return '';
+    const alarms = [buildValarm(r1)];
+    if (r2 > 0) alarms.push(buildValarm(r2));
     const lines = [
       'BEGIN:VEVENT',
       `UID:${t.id}@snail`,
@@ -58,11 +80,7 @@ function buildIcs(tasks) {
       `DTSTART:${dt}T000000Z`,
       `DTEND:${dt}T010000Z`,
       `DTSTAMP:${now}`,
-      'BEGIN:VALARM',
-      'ACTION:DISPLAY',
-      'DESCRIPTION:任务提醒',
-      'TRIGGER:-PT30M',
-      'END:VALARM',
+      ...alarms,
       'END:VEVENT',
     ];
     return lines.join('\r\n');
@@ -91,7 +109,7 @@ export default {
     if (request.method === 'GET' && url.pathname.startsWith('/ical/')) {
       const token = url.pathname.slice(6);
       if (!token) return new Response('Not found', { status: 404 });
-      return handleIcal(token, env);
+      return handleIcal(token, url, env);
     }
 
     if (request.method !== 'POST') {
@@ -110,7 +128,11 @@ export default {
   },
 };
 
-async function handleIcal(token, env) {
+async function handleIcal(token, url, env) {
+  const r1 = Math.max(1, parseInt(url.searchParams.get('r1') || '15', 10) || 15);
+  const r2Raw = parseInt(url.searchParams.get('r2') || '0', 10);
+  const r2 = r2Raw > 0 ? r2Raw : 0;
+
   if (!env.SUPABASE_SERVICE_KEY) {
     return new Response('Server not configured', { status: 503 });
   }
@@ -130,7 +152,7 @@ async function handleIcal(token, env) {
   if (!tasksResp.ok) return new Response('Server error', { status: 500 });
   const tasks = await tasksResp.json();
 
-  const ics = buildIcs(Array.isArray(tasks) ? tasks : []);
+  const ics = buildIcs(Array.isArray(tasks) ? tasks : [], r1, r2);
 
   return new Response(ics, {
     headers: {
