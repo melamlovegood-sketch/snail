@@ -94,11 +94,6 @@ export default {
       return handleIcal(token, env);
     }
 
-    // GET /api/ical-token — return current user's ical_token (requires JWT)
-    if (request.method === 'GET' && url.pathname === '/api/ical-token') {
-      return handleIcalToken(request, env);
-    }
-
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405, headers: CORS });
     }
@@ -121,7 +116,7 @@ async function handleIcal(token, env) {
   }
 
   const userResp = await sbFetch(env,
-    `/rest/v1/users?ical_token=eq.${encodeURIComponent(token)}&select=id`
+    `/rest/v1/profiles?ical_token=eq.${encodeURIComponent(token)}&select=id`
   );
   if (!userResp.ok) return new Response('Server error', { status: 500 });
   const users = await userResp.json();
@@ -145,36 +140,6 @@ async function handleIcal(token, env) {
       ...CORS,
     },
   });
-}
-
-async function handleIcalToken(request, env) {
-  if (!env.SUPABASE_SERVICE_KEY) {
-    return jsonResp({ error: 'Server not configured' }, 503);
-  }
-
-  const auth = request.headers.get('Authorization') || '';
-  if (!auth.startsWith('Bearer ')) return jsonResp({ error: 'Unauthorized' }, 401);
-  const jwt = auth.slice(7);
-
-  // Verify JWT via Supabase auth API
-  const verifyResp = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    headers: {
-      'Authorization': `Bearer ${jwt}`,
-      'apikey': env.SUPABASE_SERVICE_KEY,
-    },
-  });
-  if (!verifyResp.ok) return jsonResp({ error: 'Unauthorized' }, 401);
-  const authUser = await verifyResp.json();
-  if (!authUser || !authUser.id) return jsonResp({ error: 'Unauthorized' }, 401);
-
-  const userResp = await sbFetch(env,
-    `/rest/v1/users?id=eq.${authUser.id}&select=ical_token`
-  );
-  if (!userResp.ok) return jsonResp({ error: 'Server error' }, 500);
-  const rows = await userResp.json();
-  if (!rows || rows.length === 0) return jsonResp({ error: 'User not found' }, 404);
-
-  return jsonResp({ token: rows[0].ical_token });
 }
 
 async function handleSendCode(request, env) {
