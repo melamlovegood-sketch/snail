@@ -107,8 +107,16 @@ function buildIcs(tasks, r1 = 15, r2 = 0) {
 
     if (dateStr.length !== 8) return '';
 
-    const alarms = [buildValarm(r1)];
-    if (r2 > 0) alarms.push(buildValarm(r2));
+    const taskReminderEnabled = t.reminder_enabled !== false;
+    const alarms = [];
+    if (taskReminderEnabled) {
+      if (t.reminder_override != null) {
+        alarms.push(buildValarm(t.reminder_override));
+      } else {
+        alarms.push(buildValarm(r1));
+        if (r2 > 0) alarms.push(buildValarm(r2));
+      }
+    }
     const lines = [
       'BEGIN:VEVENT',
       `UID:${t.id}@snail`,
@@ -185,7 +193,7 @@ async function handleIcal(token, url, env) {
   const userId = users[0].id;
 
   const tasksResp = await sbFetch(env,
-    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date`
+    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date,reminder_enabled,reminder_override`
   );
   if (!tasksResp.ok) return new Response('Server error', { status: 500 });
   const tasks = await tasksResp.json();

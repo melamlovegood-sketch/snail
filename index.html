@@ -3338,6 +3338,8 @@ function taskToRow(t) {
     recur_id: (t.recurId && isUuid(t.recurId)) ? t.recurId : null,
     is_recur: !!t.isRecur,
     rollover_count: t.rolloverCount || 0,
+    reminder_enabled: t.reminderEnabled !== false,
+    reminder_override: (t.reminderOverride != null) ? t.reminderOverride : null,
     updated_at: new Date().toISOString()
   };
 }
@@ -3363,6 +3365,8 @@ function rowToTask(row) {
     notes: row.notes || '',
     favoriteId: row.favorited ? row.id : null,
     rolloverCount: row.rollover_count || 0,
+    reminderEnabled: row.reminder_enabled !== false,
+    reminderOverride: row.reminder_override ?? null,
     originalDate: null,
     decomposed: false,
     sortOrder: null,
@@ -4814,6 +4818,16 @@ function showTaskDetailModal(taskId) {
     ['normal','不重要 · 不紧急']
   ];
 
+  // 提醒状态（任务级别）
+  const _globalR1 = parseInt(localStorage.getItem('ical_reminder_1') || '15', 10);
+  let _remEnabled = t.reminderEnabled !== false;
+  let _remOverride = t.reminderOverride ?? null;
+
+  function _getRemText() {
+    if (_remOverride === null) return `使用全局设置（提前 ${_globalR1} 分钟）`;
+    return '自定义：' + formatReminderLabel(_remOverride);
+  }
+
   // 循环任务额外信息
   const tpl = t.isRecur && t.recurId ? state.recurTemplates.find(x => x.id === t.recurId) : null;
   const recurInfoBlock = tpl ? `
@@ -4862,6 +4876,26 @@ function showTaskDetailModal(taskId) {
     </div>
 
     <div class="form-group">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <label style="margin:0">截止提醒 🔔</label>
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+          <span id="td-rem-label" style="font-size:12px;color:var(--text-soft)">${_remEnabled ? '开' : '关'}</span>
+          <input type="checkbox" id="td-rem-toggle" ${_remEnabled ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent,#4f7cff)">
+        </label>
+      </div>
+      <div id="td-rem-opts" style="${_remEnabled ? '' : 'display:none'};margin-top:8px">
+        <div id="td-rem-display" style="font-size:13px;color:var(--accent,#4f7cff);margin-bottom:8px">${_getRemText()}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" class="btn-secondary" style="font-size:13px;padding:6px 10px" id="td-r-add1">+1分钟</button>
+          <button type="button" class="btn-secondary" style="font-size:13px;padding:6px 10px" id="td-r-add15">+15分钟</button>
+          <button type="button" class="btn-secondary" style="font-size:13px;padding:6px 10px" id="td-r-add60">+1小时</button>
+          <button type="button" class="btn-secondary" style="font-size:13px;padding:6px 10px" id="td-r-add1440">+1天</button>
+          <button type="button" class="btn-secondary" style="font-size:13px;padding:6px 10px" id="td-r-reset">重置</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
       <label>分类</label>
       <div class="td-chips" id="td-cat">
         ${catItems.map(([k,l]) => `<button type="button" data-v="${k}" class="${t.cat===k?'active':''}">${l}</button>`).join('')}
@@ -4901,6 +4935,25 @@ function showTaskDetailModal(taskId) {
     togglePin(t.id);
   };
 
+  // 提醒区域事件
+  modal.querySelector('#td-rem-toggle').addEventListener('change', e => {
+    _remEnabled = e.target.checked;
+    modal.querySelector('#td-rem-label').textContent = _remEnabled ? '开' : '关';
+    modal.querySelector('#td-rem-opts').style.display = _remEnabled ? '' : 'none';
+  });
+  function _updateRemDisplay() {
+    modal.querySelector('#td-rem-display').textContent = _getRemText();
+  }
+  function _addRem(m) {
+    _remOverride = (_remOverride === null) ? m : _remOverride + m;
+    _updateRemDisplay();
+  }
+  modal.querySelector('#td-r-add1').addEventListener('click', () => _addRem(1));
+  modal.querySelector('#td-r-add15').addEventListener('click', () => _addRem(15));
+  modal.querySelector('#td-r-add60').addEventListener('click', () => _addRem(60));
+  modal.querySelector('#td-r-add1440').addEventListener('click', () => _addRem(1440));
+  modal.querySelector('#td-r-reset').addEventListener('click', () => { _remOverride = null; _updateRemDisplay(); });
+
   // chip 单选
   modal.querySelectorAll('.td-chips').forEach(group => {
     group.addEventListener('click', e => {
@@ -4936,6 +4989,8 @@ function showTaskDetailModal(taskId) {
     t.durPlan = parseInt(modal.querySelector('#td-durPlan').value, 10) || 60;
     t.deadline = newDeadline;
     t.notes = modal.querySelector('#td-notes').value;
+    t.reminderEnabled = _remEnabled;
+    t.reminderOverride = _remOverride;
 
     const selCat = modal.querySelector('#td-cat button.active');
     if (selCat) t.cat = selCat.dataset.v;
