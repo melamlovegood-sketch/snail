@@ -99,7 +99,7 @@ const VTIMEZONE_SHANGHAI = [
   'END:VTIMEZONE',
 ].join('\r\n');
 
-function buildIcs(tasks, r1 = 15, r2 = 0) {
+function buildIcs(tasks, r1 = 15, r2 = 0, calName = 'Snail 任务') {
   const now = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z';
   const events = tasks.map(t => {
     let dateStr, startT, endT;
@@ -146,7 +146,7 @@ function buildIcs(tasks, r1 = 15, r2 = 0) {
     'VERSION:2.0',
     'PRODID:-//Snail//Snail Tasks//ZH',
     'CALSCALE:GREGORIAN',
-    'X-WR-CALNAME:Snail 任务',
+    foldLine(`X-WR-CALNAME:${escapeIcs(calName)}`),
     'X-WR-TIMEZONE:Asia/Shanghai',
     VTIMEZONE_SHANGHAI,
     ...events,
@@ -196,6 +196,12 @@ async function handleIcal(token, url, env) {
   const r2Raw = parseInt(url.searchParams.get('r2') || '0', 10);
   const r2 = r2Raw > 0 ? r2Raw : 0;
 
+  // 可选 cat 参数：S/R/G/C，按类别筛选；缺省则返回全部
+  const CAT_NAMES = { S: 'S 学习', R: 'R 研究', G: 'G 成长', C: 'C 杂事' };
+  const catRaw = (url.searchParams.get('cat') || '').trim().toUpperCase();
+  const cat = CAT_NAMES[catRaw] ? catRaw : '';
+  const calName = cat ? `Snail · ${CAT_NAMES[cat]}` : 'Snail 任务';
+
   if (!env.SUPABASE_SERVICE_KEY) {
     return new Response('Server not configured', { status: 503 });
   }
@@ -210,13 +216,14 @@ async function handleIcal(token, url, env) {
   const userId = users[0].id;
 
   // 仅未删除、未完成（dur_actual is null）的任务进日历；已完成归档不应出现在日程订阅中
+  const catFilter = cat ? `&cat=eq.${cat}` : '';
   const tasksResp = await sbFetch(env,
-    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&dur_actual=is.null&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date`
+    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&dur_actual=is.null${catFilter}&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date`
   );
   if (!tasksResp.ok) return new Response('Server error', { status: 500 });
   const tasks = await tasksResp.json();
 
-  const ics = buildIcs(Array.isArray(tasks) ? tasks : [], r1, r2);
+  const ics = buildIcs(Array.isArray(tasks) ? tasks : [], r1, r2, calName);
 
   return new Response(ics, {
     headers: {
