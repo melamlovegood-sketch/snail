@@ -213,7 +213,7 @@ function renderSettings() {
           <div class="label">有问题或建议？</div>
           <div class="desc">欢迎告诉我们，帮助 Snail 越来越好</div>
         </div>
-        <a href="mailto:2260562588@qq.com?subject=Snail%20%E5%8F%8D%E9%A6%88" class="btn-feedback">发邮件给我们</a>
+        <a href="mailto:Melamlovegood@gmail.com,wenbozeng18@gmail.com?subject=Snail%20%E5%8F%8D%E9%A6%88" class="btn-feedback">发邮件给我们</a>
       </div>
     </div>
 
