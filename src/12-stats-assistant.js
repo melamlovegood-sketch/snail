@@ -404,6 +404,7 @@ function buildCheckInSystemPrompt() {
 - 各分类时长：S:${h('S')}h R:${h('R')}h G:${h('G')}h C:${h('C')}h
 
 请用温暖、不评判的语气和用户对话。
+如果你需要分析或打草稿，请把这些思考过程放在 <think> 和 </think> 标签之间；标签外只放给用户看的中文回答，不要输出英文分析。
 不要说教，不要催促，像一个理解你的朋友。
 - 第一句简短问候，提到完成数，问"今天感觉怎么样？"
 - 用户回应后：一句肯定（不管完成多少都要找到值得肯定的）+ 一个具体的明日建议；如果有未完成任务，温和地问是否要调整
@@ -433,6 +434,11 @@ ${JSON.stringify(ctx, null, 2)}
 1) 重要：desc 含 论文/作业/报告/考试/答辩/项目/实验/文献/提交/交/due/deadline/ddl
 2) 紧急：date 是今天或明天，或 deadline ≤ 3 天，或 desc 含 今天/明天/马上/立刻/紧急/尽快/截止
 3) 组合：重要+紧急→红 / 重要→蓝 / 紧急→橙 / 都不→默认蓝（宁可高估）
+
+【思考与回答的分离 — 重要】
+- 如果你需要分析、推理或打草稿，请把这些思考过程全部放在 <think> 和 </think> 标签之间。
+- 标签之外只输出给用户看的最终回答（中文），不要复述你的分析过程。
+- 即使不需要思考，也不要输出任何英文分析或元说明。
 
 回答要求：
 - 语气像了解用户的朋友，简洁直接，不说教不重复问题
@@ -516,6 +522,73 @@ function renderAssistant() {
   }
 }
 
+// 把模型的「思考过程」与「最终回答」分离。
+// 来源有三种：① 部分供应商单独返回的 reasoning_content 字段；
+// ② 推理模型在正文里输出的 <think>/<thinking>/<reasoning> 标签；
+// ③ 标签未闭合（输出被截断）时，开标签之后的内容全部视为思考。
+// 返回 { reasoning, answer }，reasoning 仅用于折叠展示、不回传给模型。
+function splitReasoning(content, reasoningField) {
+  let text = String(content == null ? '' : content);
+  let reasoning = reasoningField ? String(reasoningField).trim() : '';
+  const append = s => { s = (s || '').trim(); if (s) reasoning += (reasoning ? '\n\n' : '') + s; };
+
+  // ② 成对标签
+  text = text.replace(/<(think|thinking|reasoning)>([\s\S]*?)<\/\1>/gi, (_, _tag, inner) => { append(inner); return ''; });
+
+  // ③ 残留的未闭合开标签：其后内容视为思考
+  const open = text.match(/<(think|thinking|reasoning)>/i);
+  if (open) {
+    append(text.slice(open.index + open[0].length));
+    text = text.slice(0, open.index);
+  }
+  // 清理可能残留的孤立闭合标签
+  text = text.replace(/<\/(think|thinking|reasoning)>/gi, '');
+
+  return { reasoning: reasoning.trim(), answer: text.trim() };
+}
+
+// 把助手回复渲染为富文本：先抽取 LaTeX 公式占位，再用 marked 解析 Markdown，
+// DOMPurify 净化后，把占位还原成 KaTeX 渲染好的公式 HTML。
+// 任一依赖未加载（如离线）时降级为转义后的纯文本（保留换行）。
+function renderRichText(text) {
+  const raw = String(text == null ? '' : text);
+  if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+    return escapeHtml(raw).replace(/\n/g, '<br>');
+  }
+
+  // 1) 抽取公式（块级 $$…$$ / \[…\]，行内 $…$ / \(…\)），用占位符替换，避免 Markdown 破坏公式
+  const maths = [];
+  const placeholder = i => `MATHX${i}MATHX`;
+  let work = raw
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => { maths.push({ tex, display: true }); return placeholder(maths.length - 1); })
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) => { maths.push({ tex, display: true }); return placeholder(maths.length - 1); })
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, tex) => { maths.push({ tex, display: false }); return placeholder(maths.length - 1); })
+    .replace(/(?<![\\$])\$(?!\s)([^\n$]+?)(?<!\s)\$(?!\$)/g, (_, tex) => { maths.push({ tex, display: false }); return placeholder(maths.length - 1); });
+
+  // 2) Markdown → HTML，再净化
+  let html;
+  try {
+    html = marked.parse(work, { breaks: true, gfm: true });
+  } catch (e) {
+    html = escapeHtml(work).replace(/\n/g, '<br>');
+  }
+  html = DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+
+  // 3) 还原公式占位为 KaTeX 输出（KaTeX 输出可信，放在净化之后注入）
+  html = html.replace(/MATHX(\d+)MATHX/g, (full, idx) => {
+    const m = maths[Number(idx)];
+    if (!m) return '';
+    if (typeof katex === 'undefined') return escapeHtml((m.display ? '$$' : '$') + m.tex + (m.display ? '$$' : '$'));
+    try {
+      return katex.renderToString(m.tex, { displayMode: m.display, throwOnError: false });
+    } catch (e) {
+      return escapeHtml(m.tex);
+    }
+  });
+
+  return html;
+}
+
 function renderChatMessages() {
   const box = document.getElementById('chat-scroll');
   if (!box) return;
@@ -543,11 +616,23 @@ function renderChatMessages() {
     });
     return;
   }
-  box.innerHTML = chatHistory.map(m => `
+  box.innerHTML = chatHistory.map(m => {
+    if (m.role !== 'assistant') {
+      return `
     <div class="chat-msg ${m.role}">
       <div class="bubble">${escapeHtml(m.content)}</div>
-    </div>
-  `).join('') + (chatLoading ? `
+    </div>`;
+    }
+    const think = m.reasoning ? `<details class="think">
+        <summary><span class="think-ico">💭</span> 思考过程</summary>
+        <div class="md think-body">${renderRichText(m.reasoning)}</div>
+      </details>` : '';
+    const answer = m.content ? `<div class="md">${renderRichText(m.content)}</div>` : '';
+    return `
+    <div class="chat-msg assistant">
+      <div class="bubble">${think}${answer}</div>
+    </div>`;
+  }).join('') + (chatLoading ? `
     <div class="chat-msg assistant loading">
       <div class="bubble">正在思考…</div>
     </div>
@@ -587,8 +672,9 @@ async function startCheckIn() {
     });
     if (!resp.ok) throw new Error('API ' + resp.status);
     const data = await resp.json();
-    const reply = data.choices?.[0]?.message?.content || '今天感觉怎么样？';
-    chatHistory.push({ role: 'assistant', content: reply });
+    const msg = data.choices?.[0]?.message || {};
+    const { reasoning, answer } = splitReasoning(msg.content || '今天感觉怎么样？', msg.reasoning_content || msg.reasoning);
+    chatHistory.push({ role: 'assistant', content: answer || '今天感觉怎么样？', reasoning });
   } catch(e) {
     chatHistory.push({ role: 'assistant', content: `复盘启动失败：${e.message}` });
   } finally {
@@ -644,7 +730,8 @@ async function sendChatMessage(text) {
   try {
     const messages = [
       { role: 'system', content: buildAssistantSystemPrompt() },
-      ...chatHistory
+      // 只回传 role+content，思考过程（reasoning）不进入上下文
+      ...chatHistory.map(m => ({ role: m.role, content: m.content }))
     ];
     const _chatCfg = getAiConfig();
     const resp = await fetch(QWEN_URL, {
@@ -665,10 +752,12 @@ async function sendChatMessage(text) {
       chatHistory.push({ role: 'assistant', content: `API 调用失败（${resp.status}）。${errTxt ? errTxt.slice(0,200) : ''}` });
     } else {
       const data = await resp.json();
-      const rawReply = data.choices?.[0]?.message?.content || '（没收到内容）';
-      // 解析 <ADD_TASK>{...}</ADD_TASK> 动作标签，真正创建任务
-      const { cleanText, addedCount } = handleAssistantAddTaskTags(rawReply);
-      chatHistory.push({ role: 'assistant', content: cleanText });
+      const msg = data.choices?.[0]?.message || {};
+      // 先把思考过程（reasoning_content 字段 / <think> 标签）从正文里分离出来
+      const { reasoning, answer } = splitReasoning(msg.content || '（没收到内容）', msg.reasoning_content || msg.reasoning);
+      // 再解析 <ADD_TASK>{...}</ADD_TASK> 动作标签，真正创建任务
+      const { cleanText, addedCount } = handleAssistantAddTaskTags(answer);
+      chatHistory.push({ role: 'assistant', content: cleanText, reasoning });
       if (addedCount > 0) {
         saveState();
         render();
