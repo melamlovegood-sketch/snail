@@ -356,10 +356,11 @@ h3 {
   transition: width 0.25s ease, background 0.25s ease;
 }
 .pri-edge:hover::before { width: 4px; }
-.task-card[data-priority="urgent-important"] .pri-edge::before { background: var(--pri-urgent-important); }
-.task-card[data-priority="urgent-unimportant"] .pri-edge::before { background: var(--pri-urgent-unimportant); }
-.task-card[data-priority="important"] .pri-edge::before { background: var(--pri-important); }
-.task-card[data-priority="normal"] .pri-edge::before { background: var(--pri-normal); }
+/* 左侧色条按任务类别上色（与右侧 S/R/G/C 徽章保持一致） */
+.task-card[data-cat="S"] .pri-edge::before { background: var(--cat-s); }
+.task-card[data-cat="R"] .pri-edge::before { background: var(--cat-r); }
+.task-card[data-cat="G"] .pri-edge::before { background: var(--cat-g); }
+.task-card[data-cat="C"] .pri-edge::before { background: var(--cat-c); }
 
 /* 旧 .pri-dot 仍保留：用于循环任务卡片、日程时间轴等其它视觉位置 */
 .pri-dot {
@@ -5536,6 +5537,25 @@ function sortTasks(arr) {
   });
 }
 
+/* 全部计划页：按开始时间升序排列，无时间的排在最后；同一时间再按优先级、创建时间 */
+function sortTasksByTime(arr) {
+  return arr.slice().sort((a, b) => {
+    const ta = a.startTime || null;
+    const tb = b.startTime || null;
+    if (ta && tb) {
+      if (ta !== tb) return ta.localeCompare(tb);
+    } else if (ta) {
+      return -1;
+    } else if (tb) {
+      return 1;
+    }
+    const pa = PRI_ORDER[a.priority] ?? 9;
+    const pb = PRI_ORDER[b.priority] ?? 9;
+    if (pa !== pb) return pa - pb;
+    return (a.createdAt || 0) - (b.createdAt || 0);
+  });
+}
+
 function deadlineTag(deadline) {
   if (!deadline) return '';
   const d = diffDays(todayStr(), deadline);
@@ -5591,7 +5611,7 @@ function taskCardHTML(t, opts={}) {
   const wrapEnd = isDeferEligible(t) ? '</div>' : '';
 
   return wrapStart + `
-    <div class="task-card ${isDone ? 'done' : ''}" data-task-id="${t.id}" data-priority="${t.priority}">
+    <div class="task-card ${isDone ? 'done' : ''}" data-task-id="${t.id}" data-priority="${t.priority}" data-cat="${t.cat}">
       <button class="pri-edge" onclick="event.stopPropagation(); showPriorityPicker('${t.id}', this)" title="点击修改优先级" aria-label="优先级 ${t.priority}"></button>
       <button class="complete-btn" onclick="event.stopPropagation(); toggleComplete('${t.id}')" title="${isDone ? '取消完成' : '标记完成'}"></button>
       <div class="task-main" onclick="showTaskDetailModal('${t.id}')" title="点击查看详情">
@@ -6365,7 +6385,7 @@ function renderPlans() {
           <span class="date-label">${fmtDate(date)}</span>
           <span class="text-xs text-faint">${groups[date].length} 项</span>
         </div>
-        ${sortTasks(undoneTasks).map(t => taskCardHTML(t)).join('')}
+        ${sortTasksByTime(undoneTasks).map(t => taskCardHTML(t)).join('')}
         ${renderDoneSection(doneTasks, date)}
       </div>
     `;
