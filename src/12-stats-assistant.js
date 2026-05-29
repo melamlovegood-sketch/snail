@@ -509,6 +509,7 @@ function renderAssistant() {
     if (chatHistory.length === 0) return;
     if (confirm('清空当前对话历史？')) {
       chatHistory = [];
+      saveChatHistory();
       renderAssistant();
     }
   };
@@ -646,6 +647,7 @@ async function startCheckIn() {
   // 切换到复盘模式，重置历史
   checkInMode = true;
   chatHistory = [];
+  saveChatHistory();
   chatLoading = true;
   currentTab = 'assistant';
   document.querySelectorAll('.tabbar .tab').forEach(b => {
@@ -679,6 +681,7 @@ async function startCheckIn() {
     chatHistory.push({ role: 'assistant', content: `复盘启动失败：${e.message}` });
   } finally {
     chatLoading = false;
+    saveChatHistory();
     renderChatMessages();
     const tb = document.querySelector('.chat-toolbar .meta');
     if (tb) tb.textContent = `${chatHistory.length} 条对话`;
@@ -768,6 +771,7 @@ async function sendChatMessage(text) {
     chatHistory.push({ role: 'assistant', content: `出错了：${e.message}` });
   } finally {
     chatLoading = false;
+    saveChatHistory();
     renderChatMessages();
     // 刷新工具栏的消息计数
     const tb = document.querySelector('.chat-toolbar .meta');
