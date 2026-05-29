@@ -106,3 +106,12 @@ function saveState(opts) {
 // 此处两者都已就绪。（拆分为多个 <script> 后函数提升不跨文件，故不能在 02 中提前调用。）
 state = loadState();
 
+// 多对话存储初始化（loadChatConversations / makeConversation 依赖此处已就绪的 uid()）
+;(function initChatStore() {
+  const store = loadChatConversations();
+  chatConversations = store.conversations;
+  activeConvId = store.activeId;
+  chatDeletedConvIds = store.deletedIds || [];
+  chatHistory = getActiveConversation().messages;
+})();
+

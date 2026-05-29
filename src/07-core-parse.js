@@ -18,8 +18,8 @@ function dailyTick() {
   if (isCrossDay) {
     state.done = [];                                       // 清空昨日已完成
     state.tasks.forEach(t => { t.sortOrder = null; });     // AI 早间规划仅当日有效
-    // 助手相关跨日重置（内存态）
-    chatHistory = [];
+    // 助手相关跨日重置：开启一条新对话，昨日对话保留在历史中
+    startNewConversationSilent();
     checkInMode = false;
     lastOperation = null;
   }

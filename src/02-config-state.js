@@ -67,29 +67,138 @@ let activePopover = null;
 let timerInterval = null;
 let statView = 'day'; // day | week | month
 let chartInstances = {};
-const CHAT_HISTORY_KEY = 'chronos_chat_history';
-const CHAT_HISTORY_LIMIT = 200; // 最多保留最近 N 条消息
+const CHAT_HISTORY_KEY = 'chronos_chat_history';            // 旧版单对话键（仅用于一次性迁移）
+const CHAT_CONVERSATIONS_KEY = 'chronos_chat_conversations'; // 新版多对话存储
+const CHAT_HISTORY_LIMIT = 200; // 单个对话最多保留 N 条消息
+const CHAT_CONV_LIMIT = 50;     // 最多保留 N 个对话（超出按最近更新裁剪）
 
-function loadChatHistory() {
-  try {
-    const raw = localStorage.getItem(CHAT_HISTORY_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch(_) { return []; }
+function nowISO() { return new Date().toISOString(); }
+
+// 新建一个对话对象
+function makeConversation(messages) {
+  return {
+    id: uid(),
+    title: '',
+    messages: Array.isArray(messages) ? messages : [],
+    createdAt: nowISO(),
+    updatedAt: nowISO()
+  };
 }
 
-function saveChatHistory() {
+// 读取多对话存储；兼容旧版单对话数组，全新用户则建一个空对话
+function loadChatConversations() {
+  // 1) 新版多对话存储
   try {
-    const trimmed = chatHistory.slice(-CHAT_HISTORY_LIMIT);
-    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(trimmed));
+    const raw = localStorage.getItem(CHAT_CONVERSATIONS_KEY);
+    if (raw) {
+      const o = JSON.parse(raw);
+      if (o && Array.isArray(o.conversations) && o.conversations.length > 0) {
+        const conversations = o.conversations.filter(c => c && c.id && Array.isArray(c.messages));
+        if (conversations.length > 0) {
+          const activeId = (o.activeId && conversations.some(c => c.id === o.activeId))
+            ? o.activeId : conversations[0].id;
+          return { conversations, activeId, deletedIds: Array.isArray(o.deletedIds) ? o.deletedIds : [] };
+        }
+      }
+    }
   } catch(_) {}
+  // 2) 从旧版单对话迁移
+  try {
+    const raw = localStorage.getItem(CHAT_HISTORY_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length > 0) {
+        const conv = makeConversation(arr);
+        return { conversations: [conv], activeId: conv.id, deletedIds: [] };
+      }
+    }
+  } catch(_) {}
+  // 3) 全新用户：建一个空对话
+  const conv = makeConversation([]);
+  return { conversations: [conv], activeId: conv.id, deletedIds: [] };
+}
+
+// 取当前激活对话（容错：丢失时回退第一个 / 新建）
+function getActiveConversation() {
+  let c = chatConversations.find(x => x.id === activeConvId);
+  if (!c) {
+    if (chatConversations.length === 0) chatConversations.push(makeConversation([]));
+    c = chatConversations[0];
+    activeConvId = c.id;
+  }
+  return c;
+}
+
+// 对话标题：用户未命名时取首条用户消息（截断）
+function deriveConvTitle(conv) {
+  if (conv && conv.title && conv.title.trim()) return conv.title.trim();
+  const firstUser = (conv && conv.messages || []).find(m => m.role === 'user' && m.content && m.content.trim());
+  if (firstUser) {
+    const t = firstUser.content.trim().replace(/\s+/g, ' ');
+    return t.length > 20 ? t.slice(0, 20) + '…' : t;
+  }
+  return '新对话';
+}
+
+// 持久化整个多对话存储到 localStorage
+function persistChatConversations() {
+  try {
+    if (chatConversations.length > CHAT_CONV_LIMIT) {
+      chatConversations.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+      chatConversations = chatConversations.slice(0, CHAT_CONV_LIMIT);
+    }
+    localStorage.setItem(CHAT_CONVERSATIONS_KEY, JSON.stringify({
+      conversations: chatConversations,
+      activeId: activeConvId,
+      deletedIds: (chatDeletedConvIds || []).slice(-200)
+    }));
+  } catch(_) {}
+}
+
+// 把当前 chatHistory（=激活对话的消息）写回对话对象、持久化并触发云同步。
+// 所有重新赋值 chatHistory 的地方，随后调用本函数即可保持存储一致。
+function saveChatHistory() {
+  // 原地裁剪，保持 chatHistory 与 conv.messages 的引用一致
+  if (chatHistory.length > CHAT_HISTORY_LIMIT) {
+    chatHistory.splice(0, chatHistory.length - CHAT_HISTORY_LIMIT);
+  }
+  const conv = getActiveConversation();
+  conv.messages = chatHistory;
+  conv.updatedAt = nowISO();
+  if (!conv.title || !conv.title.trim() || conv.title === '新对话') {
+    const t = deriveConvTitle(conv);
+    if (t && t !== '新对话') conv.title = t;
+  }
+  persistChatConversations();
   // 触发云同步（debounce）
   try { if (typeof scheduleChatHistoryCloudSync === 'function') scheduleChatHistoryCloudSync(); } catch(_) {}
 }
 
-let chatHistory = loadChatHistory(); // 本地持久化，跨刷新保留
+// 开启一个新对话（不渲染）。若当前激活对话已是空对话则复用，避免堆积空壳。
+function startNewConversationSilent(title) {
+  const act = chatConversations.find(c => c.id === activeConvId);
+  if (act && (!act.messages || act.messages.length === 0)) {
+    if (title) act.title = title;
+    chatHistory = act.messages;
+    persistChatConversations();
+    return act;
+  }
+  const conv = makeConversation([]);
+  if (title) conv.title = title;
+  chatConversations.unshift(conv);
+  activeConvId = conv.id;
+  chatHistory = conv.messages;
+  persistChatConversations();
+  return conv;
+}
+
+// 以下变量初始化延后到 03-utils.js（uid() 在那里才可用）
+let chatConversations;   // 多对话数组 [{ id, title, messages, createdAt, updatedAt }]
+let activeConvId;        // 当前激活对话 id
+let chatDeletedConvIds;  // 已删除对话 id 墓碑（防止云端复活）
+let chatHistory;         // 指向当前激活对话的 messages（活动引用）
 let chatLoading = false;
+let convDropdownOpen = false; // 历史对话下拉是否展开
 let morningPlan = null;   // { advice, order, noKey?, loading? } —— 当日内存态
 let lastOperation = null; // { snapshot, summary, ts } —— 上次自然语言操作的撤销快照
 let checkInMode = false;  // 助手 tab 是否进入"今日复盘"模式
