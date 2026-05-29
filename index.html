@@ -4499,6 +4499,242 @@ function showImportGroupedModal(tasks, summary) {
   backdrop.addEventListener('click', e => { if (e.target === backdrop) backdrop.remove(); });
 }
 
+/* AI 文字解析结果：逐个任务的完整可编辑详情弹框 */
+function showAIParseDetailModal(tasks, summary) {
+  if (!Array.isArray(tasks) || tasks.length === 0) { toast('未识别到任务'); return; }
+
+  const catItems = [['S','S 学习'],['R','R 研究'],['G','G 成长'],['C','C 杂事']];
+  const priItems = [
+    ['urgent-important','紧急 · 重要'],
+    ['urgent-unimportant','紧急 · 不重要'],
+    ['important','重要 · 不紧急'],
+    ['normal','不重要 · 不紧急']
+  ];
+  const dayNames = ['日','一','二','三','四','五','六'];
+  const today = todayStr();
+  const _globalR1 = parseInt(localStorage.getItem('ical_reminder_1') || '15', 10);
+  const multi = tasks.length > 1;
+
+  // 每个任务的提醒状态（AI 的 reminder 分钟数作为自定义初始值）
+  const rem = tasks.map(t => ({
+    enabled: t.reminderEnabled !== false,
+    override: (typeof t.reminder === 'number' && t.reminder > 0) ? t.reminder : null
+  }));
+  const remText = i => rem[i].override === null
+    ? `使用全局设置（提前 ${_globalR1} 分钟）`
+    : '自定义：' + formatReminderLabel(rem[i].override);
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+
+  const cardHTML = (t, i) => {
+    const cat = t.cat || 'C';
+    const pri = t.priority || 'important';
+    const isRecur = !!t.isRecur;
+    const freq = t.recurFreq === 'daily' ? 'daily' : 'weekly';
+    const days = Array.isArray(t.recurWeekdays) ? t.recurWeekdays.filter(d => d >= 0 && d <= 6) : [];
+    const recurBlock = isRecur ? `
+      <div class="form-group">
+        <label>循环频率</label>
+        <div class="td-chips ai-freq">
+          <button type="button" data-v="daily" class="${freq==='daily'?'active':''}">每天</button>
+          <button type="button" data-v="weekly" class="${freq==='weekly'?'active':''}">每周</button>
+        </div>
+      </div>
+      <div class="form-group ai-days-wrap" style="${freq==='weekly'?'':'display:none'}">
+        <label>循环日（多选）</label>
+        <div class="td-chips ai-days">
+          ${dayNames.map((n,di)=>`<button type="button" data-v="${di}" class="${days.includes(di)?'active':''}">周${n}</button>`).join('')}
+        </div>
+      </div>
+    ` : '';
+
+    return `
+    <div class="ai-task-card" data-i="${i}" style="${multi ? 'border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:14px;margin-bottom:14px;' : ''}">
+      ${multi ? `
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0;margin-bottom:10px;">
+          <input type="checkbox" class="ai-include" checked style="width:auto;min-height:auto;margin:0;">
+          <span style="font-weight:600;font-size:14px;color:var(--text);">任务 ${i+1}${isRecur ? ' · 循环' : ''}</span>
+        </label>
+      ` : `<input type="checkbox" class="ai-include" checked hidden>`}
+
+      <div class="form-group">
+        <label>描述</label>
+        <input type="text" class="ai-desc" value="${escapeHtml(t.desc || '')}">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>日期</label>
+          <input type="date" class="ai-date" value="${t.date || today}">
+        </div>
+        <div class="form-group">
+          <label>开始时间</label>
+          <input type="time" class="ai-startTime" value="${t.startTime || ''}">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>计划时长（分钟）</label>
+          <input type="number" class="ai-durPlan" value="${t.dur || 60}" min="5" step="5">
+        </div>
+        <div class="form-group">
+          <label>截止日期</label>
+          <input type="date" class="ai-deadline" value="${t.deadline || ''}">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <label style="margin:0">截止提醒 🔔</label>
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+            <span class="ai-rem-label" style="font-size:12px;color:var(--text-soft)">${rem[i].enabled ? '开' : '关'}</span>
+            <input type="checkbox" class="ai-rem-toggle" ${rem[i].enabled ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent,#4f7cff)">
+          </label>
+        </div>
+        <div class="ai-rem-opts" style="${rem[i].enabled ? '' : 'display:none'};margin-top:8px">
+          <div class="ai-rem-display" style="font-size:13px;color:var(--accent,#4f7cff);margin-bottom:8px">${remText(i)}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" class="btn-secondary ai-r" data-m="1" style="font-size:13px;padding:6px 10px">+1分钟</button>
+            <button type="button" class="btn-secondary ai-r" data-m="15" style="font-size:13px;padding:6px 10px">+15分钟</button>
+            <button type="button" class="btn-secondary ai-r" data-m="60" style="font-size:13px;padding:6px 10px">+1小时</button>
+            <button type="button" class="btn-secondary ai-r" data-m="1440" style="font-size:13px;padding:6px 10px">+1天</button>
+            <button type="button" class="btn-secondary ai-r-reset" style="font-size:13px;padding:6px 10px">重置</button>
+          </div>
+        </div>
+      </div>
+
+      ${recurBlock}
+
+      <div class="form-group">
+        <label>分类</label>
+        <div class="td-chips ai-cat">
+          ${catItems.map(([k,l]) => `<button type="button" data-v="${k}" class="${cat===k?'active':''}">${l}</button>`).join('')}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>优先级</label>
+        <div class="td-chips ai-pri">
+          ${priItems.map(([k,l]) => `<button type="button" data-v="${k}" class="${pri===k?'active':''}">${l}</button>`).join('')}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>备注</label>
+        <textarea class="ai-notes" rows="2" placeholder="例如：地点、需要签到签退、参考资料链接等">${escapeHtml(t.notes || '')}</textarea>
+      </div>
+    </div>`;
+  };
+
+  modal.innerHTML = `
+    <h2>AI 解析详情</h2>
+    <p class="text-soft text-sm" style="margin-bottom:16px">${escapeHtml(summary || `共识别 ${tasks.length} 项，可编辑后添加`)}</p>
+    ${tasks.map(cardHTML).join('')}
+    <div class="modal-actions">
+      <button class="btn-secondary" id="ai-cancel">取消</button>
+      <button class="btn-primary" id="ai-confirm">${multi ? '添加选中' : '添加'}</button>
+    </div>
+  `;
+
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  // chip 选择：cat/pri/freq 单选，days 多选；freq 切换控制循环日显隐
+  modal.querySelectorAll('.td-chips').forEach(group => {
+    const isMulti = group.classList.contains('ai-days');
+    group.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-v]');
+      if (!btn) return;
+      if (isMulti) { btn.classList.toggle('active'); return; }
+      group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (group.classList.contains('ai-freq')) {
+        const card = group.closest('.ai-task-card');
+        const daysWrap = card.querySelector('.ai-days-wrap');
+        if (daysWrap) daysWrap.style.display = (btn.dataset.v === 'weekly') ? '' : 'none';
+      }
+    });
+  });
+
+  // 每张卡片的提醒交互
+  modal.querySelectorAll('.ai-task-card').forEach((card, i) => {
+    const toggle = card.querySelector('.ai-rem-toggle');
+    const opts = card.querySelector('.ai-rem-opts');
+    const label = card.querySelector('.ai-rem-label');
+    const display = card.querySelector('.ai-rem-display');
+    const refresh = () => { display.textContent = remText(i); };
+    toggle.addEventListener('change', e => {
+      rem[i].enabled = e.target.checked;
+      label.textContent = rem[i].enabled ? '开' : '关';
+      opts.style.display = rem[i].enabled ? '' : 'none';
+    });
+    card.querySelectorAll('.ai-r').forEach(b => b.addEventListener('click', () => {
+      const m = parseInt(b.dataset.m, 10);
+      rem[i].override = (rem[i].override === null) ? m : rem[i].override + m;
+      refresh();
+    }));
+    card.querySelector('.ai-r-reset').addEventListener('click', () => { rem[i].override = null; refresh(); });
+  });
+
+  const close = () => backdrop.remove();
+  modal.querySelector('#ai-cancel').onclick = close;
+
+  modal.querySelector('#ai-confirm').onclick = () => {
+    let addedTasks = 0, addedRecur = 0;
+    modal.querySelectorAll('.ai-task-card').forEach((card, i) => {
+      const inc = card.querySelector('.ai-include');
+      if (inc && !inc.checked) return;
+      const desc = card.querySelector('.ai-desc').value.trim();
+      if (!desc) return;
+      const date = card.querySelector('.ai-date').value || today;
+      const startTime = card.querySelector('.ai-startTime').value || null;
+      const durPlan = parseInt(card.querySelector('.ai-durPlan').value, 10) || 60;
+      const deadline = card.querySelector('.ai-deadline').value || null;
+      const catEl = card.querySelector('.ai-cat button.active');
+      const priEl = card.querySelector('.ai-pri button.active');
+      const cat = catEl ? catEl.dataset.v : 'C';
+      const priority = priEl ? priEl.dataset.v : 'important';
+      const notes = card.querySelector('.ai-notes').value;
+
+      if (tasks[i].isRecur) {
+        const freqBtn = card.querySelector('.ai-freq button.active');
+        const freq = freqBtn ? freqBtn.dataset.v : 'weekly';
+        let days;
+        if (freq === 'daily') days = [0,1,2,3,4,5,6];
+        else {
+          days = Array.from(card.querySelectorAll('.ai-days button.active')).map(b => parseInt(b.dataset.v, 10));
+          if (days.length === 0) days = [1,2,3,4,5];
+        }
+        state.recurTemplates.push({
+          id: uid(), desc, cat, priority, durPlan,
+          startTime, days: days.sort(), notes, createdAt: today
+        });
+        addedRecur++;
+      } else {
+        const task = makeTask({ desc, cat, priority, date, startTime, deadline, durPlan, notes });
+        task.reminderEnabled = rem[i].enabled;
+        task.reminderOverride = rem[i].override;
+        task.priorityManualOverride = true;  // 用户已核对优先级，避免被自动重判
+        state.tasks.push(task);
+        addedTasks++;
+      }
+    });
+
+    if (addedTasks === 0 && addedRecur === 0) { toast('没有选中可添加的任务'); return; }
+    saveState();
+    if (addedRecur > 0) dailyTick();
+    close();
+    render();
+    toast(`已添加 ${addedTasks} 个任务${addedRecur > 0 ? `，${addedRecur} 个循环` : ''}`);
+  };
+
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+}
+
 // 保留旧名称作为别名供其它代码引用
 function showAITaskConfirmModal(tasks) { return showImportGroupedModal(tasks, ''); }
 
@@ -5761,7 +5997,7 @@ summary 是给用户看的简洁中文确认信息。`;
         tasks = [{ desc: obj.desc.trim() }];
       }
       if (tasks.length === 0) { toast('未识别到任务'); return; }
-      showImportGroupedModal(tasks, obj.summary);
+      showAIParseDetailModal(tasks, obj.summary);
     } else {
       toast('AI 未识别意图');
     }
