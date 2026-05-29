@@ -223,7 +223,9 @@ async function callTaskAI(userText) {
   const today = todayStr();
   const trim = t => ({
     id: t.id, desc: t.desc, cat: t.cat, priority: t.priority,
-    date: t.date, startTime: t.startTime, durPlan: t.durPlan
+    date: t.date, startTime: t.startTime, endTime: t.endTime,
+    timeLabel: t.timeLabel, durPlan: t.durPlan,
+    deadline: t.deadline, notes: t.notes
   });
   const ctx = {
     today,
@@ -237,23 +239,30 @@ async function callTaskAI(userText) {
 ${JSON.stringify(ctx)}
 
 用户输入可能是：
-A) 对现有任务的操作（修改/删除/挪日期/改时长/改分类/改优先级等）
+A) 对现有任务的操作（可修改任意字段 / 删除 / 批量调整，涵盖全部待办与今日已完成任务）
 B) 新建一个或多个任务（含循环任务）
 
 请严格判断并只返回一个 JSON（不要 markdown，不要任何额外文字）。
 
-A) 操作指令：
+A) 操作指令：用一个万能 update 即可改任意字段，一条 action 可同时改多个字段。
 {
   "type": "operation",
   "actions": [
-    {"op": "reschedule", "taskId": "xxx", "newDate": "YYYY-MM-DD"},
-    {"op": "delete", "taskId": "xxx"},
-    {"op": "updateDur", "taskId": "xxx", "dur": 60},
-    {"op": "updateCat", "taskId": "xxx", "cat": "S"},
-    {"op": "updatePriority", "taskId": "xxx", "priority": "urgent-important"}
+    {"op": "update", "taskId": "xxx", "desc": "新描述", "date": "YYYY-MM-DD", "startTime": "HH:MM", "dur": 60, "cat": "S", "priority": "urgent-important", "deadline": "YYYY-MM-DD", "notes": "新备注"},
+    {"op": "delete", "taskId": "xxx"}
   ],
-  "summary": "我帮你把 3 个 C 类任务推到了明天"
+  "summary": "我帮你把「学CNN」的开始时间改到了 21:00"
 }
+update 的字段规则（只放需要改的字段，不改的字段不要出现）：
+- desc：任务描述（30字内）
+- date：任务日期 YYYY-MM-DD
+- startTime："HH:MM" 设置具体开始时间；传 "" 或 null 表示清除时间，变成全天/不定时
+- dur：计划时长（分钟，≥5）
+- cat：S/R/G/C
+- priority：urgent-important/urgent-unimportant/important/normal
+- deadline："YYYY-MM-DD" 设置截止；传 "" 或 null 清除截止
+- notes：备注文本
+（旧式单字段写法 reschedule/updateDate/updateDur/updateCat/updatePriority/updateStartTime/updateDesc/updateDeadline/updateNotes 仍兼容，但优先用 update。）
 
 B) 新建任务：
 {
@@ -278,9 +287,11 @@ B) 新建任务：
 }
 
 判断与操作规则：
-- taskId 必须是上面列表里真实存在的 id
-- 含 推到/挪到/顺延/改成/压缩/删除/不做了/清空 等且明确指向已有任务 → operation
-- "把今天所有 C 类推到明天"展开为多个 reschedule
+- taskId 必须是上面列表（pending 或 done_today）里真实存在的 id；可对全部任务（含已完成）操作
+- 含 推到/挪到/顺延/改成/改为/调整/重命名/叫做/压缩/拉长/删除/不做了/清空/改时间/改名字/改备注/改截止 等且明确指向已有任务 → operation
+- 用户只说改某一项时，update 里就只放那一项；说改多项就一条 update 放多项
+- 靠 desc 文字匹配用户指的是哪个任务，匹配到对应的 taskId
+- "把今天所有 C 类推到明天"针对每个匹配任务展开为多个 update(date)
 - "删除所有已完成"针对 done_today 展开为多个 delete
 - 否则一律按新建任务处理
 
@@ -355,6 +366,47 @@ summary 是给用户看的简洁中文确认信息。`;
 
 function deepClone(v) { return JSON.parse(JSON.stringify(v)); }
 
+/**
+ * 把 action 上携带的字段应用到任务 t，返回成功修改的字段数。
+ * 只处理 action 上实际出现的字段；非法值忽略。供万能 update 与所有旧式单字段 op 共用。
+ */
+function applyTaskFields(t, a) {
+  let changed = 0;
+  // 描述
+  if (typeof a.desc === 'string' && a.desc.trim()) { t.desc = a.desc.trim(); changed++; }
+  // 日期
+  if (typeof a.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.date)) {
+    t.date = a.date; t.rollover = false; t.rolloverCount = 0; changed++;
+  }
+  // 计划时长（分钟）
+  if (typeof a.dur === 'number' && a.dur >= 5) { t.durPlan = a.dur; changed++; }
+  // 分类
+  if (typeof a.cat === 'string' && /^[SRGC]$/.test(a.cat)) { t.cat = a.cat; changed++; }
+  // 优先级
+  if (typeof a.priority === 'string' && /^(urgent-important|urgent-unimportant|important|normal)$/.test(a.priority)) {
+    t.priority = a.priority; t.priorityManualOverride = true; changed++;
+  }
+  // 开始时间："HH:MM" 设置；"" 或 null 清除（同时清掉模糊时段标签）
+  if (a.startTime !== undefined) {
+    if (typeof a.startTime === 'string' && /^\d{2}:\d{2}$/.test(a.startTime)) {
+      t.startTime = a.startTime; t.timeLabel = null; t.endTime = null; changed++;
+    } else if (a.startTime === null || a.startTime === '') {
+      t.startTime = null; t.timeLabel = null; t.endTime = null; changed++;
+    }
+  }
+  // 截止："YYYY-MM-DD" 设置；"" 或 null 清除
+  if (a.deadline !== undefined) {
+    if (typeof a.deadline === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.deadline)) {
+      t.deadline = a.deadline; t.deadlineUrgencyApplied = false; changed++;
+    } else if (a.deadline === null || a.deadline === '') {
+      t.deadline = null; changed++;
+    }
+  }
+  // 备注
+  if (typeof a.notes === 'string') { t.notes = a.notes; changed++; }
+  return changed;
+}
+
 function applyOperations(actions, summary) {
   // 先快照便于撤销
   const snapshot = {
@@ -376,42 +428,12 @@ function applyOperations(actions, summary) {
     }
     const t = findTask(action.taskId);
     if (!t) continue;
-    switch (action.op) {
-      case 'reschedule':
-      case 'updateDate':
-        if (typeof action.newDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(action.newDate)) {
-          t.date = action.newDate;
-          t.rollover = false;
-          t.rolloverCount = 0;
-          applied++;
-        }
-        break;
-      case 'updateDur':
-        if (typeof action.dur === 'number' && action.dur >= 5) {
-          t.durPlan = action.dur;
-          applied++;
-        }
-        break;
-      case 'updateCat':
-        if (typeof action.cat === 'string' && /^[SRGC]$/.test(action.cat)) {
-          t.cat = action.cat;
-          applied++;
-        }
-        break;
-      case 'updatePriority':
-        if (typeof action.priority === 'string' && /^(urgent-important|urgent-unimportant|important|normal)$/.test(action.priority)) {
-          t.priority = action.priority;
-          t.priorityManualOverride = true;
-          applied++;
-        }
-        break;
-      case 'updateStartTime':
-        if (typeof action.startTime === 'string' && /^\d{2}:\d{2}$/.test(action.startTime)) {
-          t.startTime = action.startTime;
-          applied++;
-        }
-        break;
+    // 万能 update 与所有旧式单字段 op 统一走 applyTaskFields；
+    // 旧式 reschedule/updateDate 用 newDate 字段，这里兼容映射到 date。
+    if (action.op === 'reschedule' || action.op === 'updateDate') {
+      if (action.date === undefined && action.newDate !== undefined) action.date = action.newDate;
     }
+    if (applyTaskFields(t, action) > 0) applied++;
   }
 
   if (applied > 0) {
