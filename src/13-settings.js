@@ -127,7 +127,7 @@ function renderSettings() {
     <div class="settings-section">
       <div id="ai-profile-list" style="display:flex;flex-direction:column;gap:8px"></div>
       <button class="btn-secondary" id="ai-add-profile" style="align-self:flex-start;margin:10px 0 2px">+ 新增配置</button>
-      <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:12px; border-top:1px solid var(--border); padding-top:14px; margin-top:4px">
+      <div class="settings-row" id="ai-edit-panel" style="display:none; flex-direction:column; align-items:stretch; gap:12px; border-top:1px solid var(--border); padding-top:14px; margin-top:4px">
         <div id="ai-edit-title" class="label" style="font-weight:600"></div>
         <div>
           <div class="label" style="margin-bottom:6px">配置名称</div>
@@ -312,6 +312,10 @@ function renderSettings() {
   const _editTitle = main.querySelector('#ai-edit-title');
   const _cancelBtn = main.querySelector('#cancel-ai-edit');
   const _listEl = main.querySelector('#ai-profile-list');
+  const _editPanel = main.querySelector('#ai-edit-panel');
+
+  function _showEditPanel() { _editPanel.style.display = ''; }
+  function _hideEditPanel() { _editPanel.style.display = 'none'; }
 
   function _fillDatalist(el, models) {
     el.innerHTML = (models || []).map(m => `<option value="${m}"></option>`).join('');
@@ -339,11 +343,11 @@ function renderSettings() {
     if (aiEditingId) {
       const p = loadAiProfiles().profiles.find(x => x.id === aiEditingId);
       _editTitle.textContent = '编辑配置' + (p && p.name ? '：' + p.name : '');
-      _cancelBtn.style.display = '';
     } else {
       _editTitle.textContent = '新增配置';
-      _cancelBtn.style.display = 'none';
     }
+    // 面板默认隐藏，可折叠，因此始终提供「取消」按钮以关闭面板
+    _cancelBtn.style.display = '';
   }
   function _renderProfileList() {
     const { active, profiles } = loadAiProfiles();
@@ -390,6 +394,8 @@ function renderSettings() {
     aiEditingId = null;
     _loadForm(null);
     _renderEditState();
+    _showEditPanel();
+    _editTitle.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   function _startEdit(id) {
     const p = loadAiProfiles().profiles.find(x => x.id === id);
@@ -397,6 +403,7 @@ function renderSettings() {
     aiEditingId = id;
     _loadForm(p);
     _renderEditState();
+    _showEditPanel();
     _editTitle.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   function _deleteProfile(id) {
@@ -426,7 +433,7 @@ function renderSettings() {
     _apikeyToggle.textContent = show ? '隐藏' : '显示';
   };
   main.querySelector('#ai-add-profile').onclick = () => _startNew();
-  _cancelBtn.onclick = () => _startNew();
+  _cancelBtn.onclick = () => _hideEditPanel();
   main.querySelector('#save-ai-config').onclick = () => {
     const provider = _provSel.value;
     if (provider === 'custom' && !_baseurlInput.value.trim()) {
@@ -457,10 +464,12 @@ function renderSettings() {
     saveAiProfiles(d);
     _renderProfileList();
     _renderEditState();
+    _hideEditPanel();
     toast('已保存');
   };
 
-  // 初始化：有配置则编辑当前选中的那套，否则进入新增态
+  // 初始化：仅渲染配置列表，编辑面板默认折叠隐藏，
+  // 只有点击「✎ 编辑」或「+ 新增配置」时才展开
   (function _initAiSettings() {
     const { active, profiles } = loadAiProfiles();
     if (profiles.length) {
@@ -472,6 +481,7 @@ function renderSettings() {
     }
     _renderProfileList();
     _renderEditState();
+    _hideEditPanel();
   })();
   main.querySelector('#export-data').onclick = exportData;
   main.querySelector('#import-data').onclick = () => document.getElementById('json-input').click();
