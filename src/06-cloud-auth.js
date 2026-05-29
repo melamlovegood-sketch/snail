@@ -515,7 +515,19 @@ async function pushChatHistoryToCloud() {
   if (authStatus !== 'cloud' || !sb || !cloudUser) return;
   if (!navigator.onLine) return;
   try {
-    const payload = { messages: chatHistory.slice(-CHAT_HISTORY_LIMIT), savedAt: new Date().toISOString() };
+    const payload = {
+      version: 2,
+      conversations: chatConversations.map(c => ({
+        id: c.id,
+        title: c.title || '',
+        createdAt: c.createdAt || null,
+        updatedAt: c.updatedAt || null,
+        messages: (c.messages || []).slice(-CHAT_HISTORY_LIMIT)
+      })),
+      activeId: activeConvId,
+      deletedIds: (chatDeletedConvIds || []).slice(-200),
+      savedAt: new Date().toISOString()
+    };
     const { error } = await sb
       .from('profiles')
       .upsert({ id: cloudUser.id, chat_history: payload }, { onConflict: 'id' });
@@ -525,6 +537,7 @@ async function pushChatHistoryToCloud() {
   }
 }
 
+// 拉取并按对话合并：以 updatedAt 较新者为准，应用云端删除墓碑，反向也把本地变更推回。
 async function syncChatHistoryFromCloud() {
   if (authStatus !== 'cloud' || !sb || !cloudUser) return;
   try {
@@ -535,19 +548,98 @@ async function syncChatHistoryFromCloud() {
       .single();
     if (error) { console.warn('[Cloud] pull chat_history failed:', error); return; }
     const cloud = data && data.chat_history;
-    if (!cloud || !Array.isArray(cloud.messages) || cloud.messages.length === 0) {
-      // 云端无历史：把本地的推上去
-      if (chatHistory.length > 0) await pushChatHistoryToCloud();
+
+    // 规范化云端数据：兼容旧版 { messages:[...] } 单对话格式
+    let cloudConvs = [], cloudDeleted = [], cloudActive = null;
+    if (cloud && Array.isArray(cloud.conversations)) {
+      cloudConvs = cloud.conversations.filter(c => c && c.id && Array.isArray(c.messages));
+      cloudDeleted = Array.isArray(cloud.deletedIds) ? cloud.deletedIds : [];
+      cloudActive = cloud.activeId || null;
+    } else if (cloud && Array.isArray(cloud.messages) && cloud.messages.length > 0) {
+      cloudConvs = [{
+        id: 'legacy-' + cloudUser.id,
+        title: '',
+        messages: cloud.messages,
+        createdAt: cloud.savedAt || null,
+        updatedAt: cloud.savedAt || null
+      }];
+    }
+
+    // 云端无任何数据：把本地推上去（首次开启同步）
+    const localHasContent = chatConversations.some(c => (c.messages || []).length > 0) || chatConversations.length > 1;
+    if (cloudConvs.length === 0 && cloudDeleted.length === 0) {
+      if (localHasContent) await pushChatHistoryToCloud();
       return;
     }
-    const localSavedAt = new Date(0);
-    const cloudSavedAt = new Date(cloud.savedAt || 0);
-    // 若云端更新，用云端覆盖本地；否则把本地推上去
-    if (cloudSavedAt > localSavedAt && cloud.messages.length >= chatHistory.length) {
-      chatHistory = cloud.messages;
-      saveChatHistory();
-      if (currentTab === 'assistant') renderChatMessages();
-    } else if (chatHistory.length > 0) {
+
+    let changed = false;
+
+    // 1) 应用云端删除墓碑：本地移除这些对话并记录墓碑
+    cloudDeleted.forEach(id => {
+      if (!chatDeletedConvIds.includes(id)) { chatDeletedConvIds.push(id); changed = true; }
+      const i = chatConversations.findIndex(c => c.id === id);
+      if (i >= 0) { chatConversations.splice(i, 1); changed = true; }
+    });
+
+    // 2) 按 id 合并云端对话（updatedAt 较新者为准；本地已删的不复活）
+    const localById = {};
+    chatConversations.forEach(c => { localById[c.id] = c; });
+    cloudConvs.forEach(cc => {
+      if (chatDeletedConvIds.includes(cc.id)) return;
+      const local = localById[cc.id];
+      if (!local) {
+        const conv = {
+          id: cc.id,
+          title: cc.title || '',
+          messages: Array.isArray(cc.messages) ? cc.messages : [],
+          createdAt: cc.createdAt || cc.updatedAt || nowISO(),
+          updatedAt: cc.updatedAt || nowISO()
+        };
+        chatConversations.push(conv);
+        localById[cc.id] = conv;
+        changed = true;
+      } else {
+        const cu = new Date(cc.updatedAt || 0).getTime();
+        const lu = new Date(local.updatedAt || 0).getTime();
+        if (cu > lu) {
+          local.title = cc.title || local.title;
+          local.messages = Array.isArray(cc.messages) ? cc.messages : local.messages;
+          local.updatedAt = cc.updatedAt || local.updatedAt;
+          if (local.id === activeConvId) chatHistory = local.messages; // 重新绑定活动引用
+          changed = true;
+        }
+      }
+    });
+
+    // 2.5) 若本地当前激活对话是空对话，而云端指定了有效的激活对话，则跟随云端
+    //      （刚登录时让用户落在云端的最近对话，而非本地的空白对话）
+    const curActive = chatConversations.find(c => c.id === activeConvId);
+    if (cloudActive && (!curActive || (curActive.messages || []).length === 0)
+        && chatConversations.some(c => c.id === cloudActive)) {
+      activeConvId = cloudActive;
+      chatHistory = getActiveConversation().messages;
+      changed = true;
+    }
+
+    // 3) 兜底：至少保留一个对话，且 activeConvId 有效
+    if (chatConversations.length === 0) {
+      const conv = makeConversation([]);
+      chatConversations.push(conv);
+      activeConvId = conv.id;
+      chatHistory = conv.messages;
+      changed = true;
+    }
+    if (!chatConversations.some(c => c.id === activeConvId)) {
+      chatConversations.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+      activeConvId = chatConversations[0].id;
+      chatHistory = getActiveConversation().messages;
+      changed = true;
+    }
+
+    if (changed) {
+      persistChatConversations();
+      if (currentTab === 'assistant') renderAssistant();
+      // 把合并后的结果（含本地新对话/删除墓碑）推回云端，保证两端最终一致
       await pushChatHistoryToCloud();
     }
   } catch(e) {

@@ -1743,6 +1743,79 @@ textarea.api-input {
 .checkin-btn.is-active { background: var(--accent-soft); color: var(--accent); }
 .checkin-btn.is-active .rate { background: var(--bg-elev); }
 
+/* ---- 历史对话下拉 ---- */
+.conv-menu { position: relative; display: flex; gap: 8px; align-items: center; }
+.conv-history-btn { display: inline-flex; align-items: center; gap: 4px; max-width: 200px; }
+.conv-history-btn .conv-title {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conv-history-btn .conv-count {
+  background: var(--bg);
+  color: var(--text-soft);
+  padding: 0 6px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.conv-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 280px;
+  max-width: 82vw;
+  max-height: 52vh;
+  overflow-y: auto;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  z-index: 200;
+  padding: 6px;
+}
+.conv-dropdown-head {
+  font-size: 12px;
+  color: var(--text-soft);
+  padding: 6px 8px 8px;
+}
+.conv-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.conv-item:hover { background: var(--bg-soft); }
+.conv-item.active { background: var(--accent-soft); }
+.conv-item-main { flex: 1; min-width: 0; }
+.conv-item-title {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conv-item-meta {
+  font-size: 11px;
+  color: var(--text-soft);
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.conv-del {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-soft);
+  cursor: pointer;
+  padding: 4px 7px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1;
+}
+.conv-del:hover { background: var(--bg); color: #c0564b; }
+
 /* ===================== Toast ===================== */
 .toast {
   position: fixed;

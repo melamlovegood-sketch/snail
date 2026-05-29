@@ -472,8 +472,13 @@ function renderAssistant() {
       <button class="btn-secondary checkin-btn ${checkInMode ? 'is-active' : ''}" id="checkin-btn" style="padding:8px 14px; min-height:36px; font-size:13px">
         ${checkInMode ? '↻ 重新复盘' : '今日复盘'} <span class="rate">${todayD}/${totalToday}</span>
       </button>
-      <span class="meta" style="margin-left:auto">${chatHistory.length} 条对话</span>
-      <button class="btn-secondary" id="chat-clear" style="padding:6px 12px; min-height:32px; font-size:12px">新对话</button>
+      <div class="conv-menu" style="margin-left:auto">
+        <button class="btn-secondary conv-history-btn" id="conv-history-btn" style="padding:6px 12px; min-height:32px; font-size:12px" title="历史对话">
+          🕘 <span class="conv-title">${escapeHtml(deriveConvTitle(getActiveConversation()))}</span>
+          <span class="conv-count">${chatConversations.length}</span> ▾
+        </button>
+        <button class="btn-secondary" id="chat-clear" style="padding:6px 12px; min-height:32px; font-size:12px">＋ 新对话</button>
+      </div>
     </div>
     <div class="chat-scroll" id="chat-scroll"></div>
     <div class="chat-input-bar">
@@ -505,14 +510,11 @@ function renderAssistant() {
 
   sendBtn.onclick = doSend;
 
-  main.querySelector('#chat-clear').onclick = () => {
-    if (chatHistory.length === 0) return;
-    if (confirm('清空当前对话历史？')) {
-      chatHistory = [];
-      saveChatHistory();
-      renderAssistant();
-    }
-  };
+  main.querySelector('#conv-history-btn').onclick = (e) => { e.stopPropagation(); toggleConvDropdown(); };
+  main.querySelector('#chat-clear').onclick = () => newConversation();
+
+  // 重新渲染后若下拉本应展开，则补绘
+  if (convDropdownOpen) renderConvDropdown();
 
   function doSend() {
     const text = input.value.trim();
@@ -521,6 +523,137 @@ function renderAssistant() {
     input.style.height = 'auto';
     sendChatMessage(text);
   }
+}
+
+/* ---------------- 多对话管理 ---------------- */
+// 刷新工具栏上的对话标题与计数（无需整页重渲染）
+function refreshConvToolbar() {
+  const titleEl = document.querySelector('#conv-history-btn .conv-title');
+  if (titleEl) titleEl.textContent = deriveConvTitle(getActiveConversation());
+  const countEl = document.querySelector('#conv-history-btn .conv-count');
+  if (countEl) countEl.textContent = chatConversations.length;
+}
+
+// 对话时间显示：今天显示时:分，昨天显示「昨天 时:分」，更早显示月日
+function fmtConvTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const hm = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  if (ds === todayStr()) return hm;
+  if (ds === dateAdd(todayStr(), -1)) return '昨天 ' + hm;
+  return `${d.getMonth()+1}月${d.getDate()}日`;
+}
+
+function newConversation() {
+  startNewConversationSilent();
+  checkInMode = false;
+  closeConvDropdown();
+  scheduleChatHistoryCloudSync();
+  renderAssistant();
+}
+
+function switchConversation(id) {
+  const conv = chatConversations.find(c => c.id === id);
+  if (!conv) return;
+  activeConvId = id;
+  chatHistory = conv.messages;
+  checkInMode = false;
+  closeConvDropdown();
+  persistChatConversations();
+  renderAssistant();
+}
+
+function deleteConversation(id, ev) {
+  if (ev) ev.stopPropagation();
+  const conv = chatConversations.find(c => c.id === id);
+  if (!conv) return;
+  if (!confirm(`删除对话「${deriveConvTitle(conv)}」？\n\n本地与云端备份都会一并删除，无法恢复。`)) return;
+  chatConversations = chatConversations.filter(c => c.id !== id);
+  if (!chatDeletedConvIds.includes(id)) chatDeletedConvIds.push(id);
+  if (activeConvId === id) {
+    if (chatConversations.length === 0) {
+      const fresh = makeConversation([]);
+      chatConversations.push(fresh);
+      activeConvId = fresh.id;
+    } else {
+      chatConversations.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+      activeConvId = chatConversations[0].id;
+    }
+    chatHistory = getActiveConversation().messages;
+  }
+  persistChatConversations();
+  // 同步删除云端备份：重新上传不含该对话、且带墓碑的 blob（登录态才会真正写云端）
+  pushChatHistoryToCloud();
+  // 保持下拉展开，renderAssistant 末尾会按 convDropdownOpen 重绘下拉
+  renderAssistant();
+}
+
+function toggleConvDropdown() {
+  convDropdownOpen = !convDropdownOpen;
+  renderConvDropdown();
+}
+
+function closeConvDropdown() {
+  convDropdownOpen = false;
+  const el = document.getElementById('conv-dropdown');
+  if (el) el.remove();
+}
+
+function onDocClickConvDropdown(e) {
+  if (e.target.closest('.conv-menu')) {
+    // 点在菜单内（含切换/删除按钮）：仍展开则继续监听下一次点击
+    if (convDropdownOpen) document.addEventListener('click', onDocClickConvDropdown, { once: true });
+    return;
+  }
+  closeConvDropdown();
+}
+
+function renderConvDropdown() {
+  const existing = document.getElementById('conv-dropdown');
+  if (existing) existing.remove();
+  if (!convDropdownOpen) return;
+  const menu = document.querySelector('.conv-menu');
+  if (!menu) return;
+
+  const convs = chatConversations.slice().sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+  const panel = document.createElement('div');
+  panel.id = 'conv-dropdown';
+  panel.className = 'conv-dropdown';
+  panel.innerHTML = `
+    <div class="conv-dropdown-head">历史对话 · ${convs.length}</div>
+    <div class="conv-list">
+      ${convs.map(c => {
+        const active = c.id === activeConvId;
+        const count = (c.messages || []).length;
+        return `
+          <div class="conv-item ${active ? 'active' : ''}" data-id="${c.id}">
+            <div class="conv-item-main">
+              <div class="conv-item-title">${escapeHtml(deriveConvTitle(c))}</div>
+              <div class="conv-item-meta">${count} 条消息 · ${fmtConvTime(c.updatedAt)}</div>
+            </div>
+            <button class="conv-del" data-del="${c.id}" title="删除对话">✕</button>
+          </div>`;
+      }).join('')}
+    </div>
+  `;
+  menu.appendChild(panel);
+
+  panel.querySelectorAll('.conv-item').forEach(it => {
+    it.onclick = (e) => {
+      if (e.target.closest('.conv-del')) return;
+      switchConversation(it.dataset.id);
+    };
+  });
+  panel.querySelectorAll('.conv-del').forEach(btn => {
+    btn.onclick = (e) => deleteConversation(btn.dataset.del, e);
+  });
+
+  // 点击空白处关闭（延后注册，避免捕获到本次打开的点击）
+  setTimeout(() => {
+    if (convDropdownOpen) document.addEventListener('click', onDocClickConvDropdown, { once: true });
+  }, 0);
 }
 
 // 把模型的「思考过程」与「最终回答」分离。
@@ -644,10 +777,10 @@ function renderChatMessages() {
 async function startCheckIn() {
   const apiKey = getApiKey();
   if (!apiKey) { toast('请先在设置中填入 API Key'); return; }
-  // 切换到复盘模式，重置历史
+  // 切换到复盘模式：开一条独立的复盘对话，历史对话不受影响
   checkInMode = true;
-  chatHistory = [];
-  saveChatHistory();
+  startNewConversationSilent('今日复盘 ' + todayStr());
+  scheduleChatHistoryCloudSync();
   chatLoading = true;
   currentTab = 'assistant';
   document.querySelectorAll('.tabbar .tab').forEach(b => {
@@ -683,8 +816,7 @@ async function startCheckIn() {
     chatLoading = false;
     saveChatHistory();
     renderChatMessages();
-    const tb = document.querySelector('.chat-toolbar .meta');
-    if (tb) tb.textContent = `${chatHistory.length} 条对话`;
+    refreshConvToolbar();
   }
 }
 
@@ -773,9 +905,8 @@ async function sendChatMessage(text) {
     chatLoading = false;
     saveChatHistory();
     renderChatMessages();
-    // 刷新工具栏的消息计数
-    const tb = document.querySelector('.chat-toolbar .meta');
-    if (tb) tb.textContent = `已加载 ${state.tasks.length} 个待办 · ${(state.archive || []).length} 已完成 · ${chatHistory.length} 条对话`;
+    // 首条消息后标题/计数可能变化，刷新工具栏
+    refreshConvToolbar();
   }
 }
 

@@ -165,13 +165,34 @@ try {
 window.addEventListener('online', () => {
   if (authStatus === 'cloud') {
     syncStatus = 'syncing'; updateSyncIndicator();
-    pushAllToCloud();
+    // 恢复网络：先推本地改动，再拉云端最新（任务 / AI 配置 / 对话历史）
+    pushAllToCloud().then(autoPullFromCloud);
   }
 });
 window.addEventListener('offline', () => {
   if (authStatus === 'cloud') {
     syncStatus = 'offline'; updateSyncIndicator();
   }
+});
+
+/* 自动下行同步：从云端拉取任务、AI 配置、对话历史的最新数据 */
+function autoPullFromCloud() {
+  if (authStatus !== 'cloud' || !navigator.onLine) return;
+  try { syncFromCloud(); } catch(_) {}
+  try { syncAiProfilesFromCloud(); } catch(_) {}
+  try { syncChatHistoryFromCloud(); } catch(_) {}
+}
+
+/* 回到前台（切回标签页 / 解锁）时自动拉取云端最新，跨设备改动无需手动同步。
+ * 任务表已有 Realtime 订阅；此处补齐对话历史、AI 配置以及订阅可能掉线后的兜底。 */
+let _lastAutoPull = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (authStatus !== 'cloud' || !navigator.onLine) return;
+  const now = Date.now();
+  if (now - _lastAutoPull < 5000) return; // 节流，避免频繁切换重复拉取
+  _lastAutoPull = now;
+  autoPullFromCloud();
 });
 
 /* ===================== Service Worker 注册 + 强制更新检测 =====================
