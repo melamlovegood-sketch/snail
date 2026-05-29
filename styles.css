@@ -840,8 +840,8 @@ h3 {
   justify-content: space-between;
 }
 .focus-topbar-title {
-  font-family: Georgia, 'Times New Roman', 'Noto Serif SC', 'Songti SC', serif;
-  font-size: 17px;
+  font-family: 'Playfair Display', Georgia, 'Noto Serif SC', 'Songti SC', serif;
+  font-size: 18px;
   font-weight: 600;
   letter-spacing: 0.3px;
   color: var(--text);
@@ -938,10 +938,10 @@ h3 {
   align-items: center;
 }
 .focus-time-num {
-  font-family: Georgia, 'Times New Roman', 'Noto Serif SC', serif;
-  font-size: clamp(52px, 18vw, 84px);
+  font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  font-size: clamp(56px, 19vw, 88px);
   font-weight: 600;
-  line-height: 0.92;
+  line-height: 1;
   color: var(--text);
   font-variant-numeric: tabular-nums lining-nums;
   letter-spacing: 0;
