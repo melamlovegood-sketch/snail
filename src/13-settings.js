@@ -2,9 +2,15 @@ function renderSettings() {
   const main = document.getElementById('main');
   const _icalR1 = parseInt(localStorage.getItem('ical_reminder_1') || '15', 10);
   const _icalR2 = parseInt(localStorage.getItem('ical_reminder_2') || '0', 10);
-  const icalUrl = (cloudUser && cloudUser.icalToken)
+  const icalBase = (cloudUser && cloudUser.icalToken)
     ? `https://snail-api.friday0.top/ical/${cloudUser.icalToken}?r1=${_icalR1}&r2=${_icalR2}`
     : '';
+  const icalCats = [
+    { k: 'S', label: 'S 学习', color: 'var(--cat-s)' },
+    { k: 'R', label: 'R 研究', color: 'var(--cat-r)' },
+    { k: 'G', label: 'G 成长', color: 'var(--cat-g)' },
+    { k: 'C', label: 'C 杂事', color: 'var(--cat-c)' },
+  ].map(c => ({ ...c, url: icalBase ? `${icalBase}&cat=${c.k}` : '' }));
   main.innerHTML = `
     <div class="section-title">账号</div>
     <div class="settings-section">
@@ -44,17 +50,24 @@ function renderSettings() {
     ${authStatus === 'cloud' && cloudUser && cloudUser.icalToken ? `
     <div class="section-title">日历订阅</div>
     <div class="settings-section">
-      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:10px">
+      <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:14px">
         <div>
           <div class="label">订阅链接</div>
-          <div class="desc">将带截止日期的任务同步到苹果日历、Google 日历等</div>
+          <div class="desc">按 SRGC 四个类别分别订阅，可只把某一类任务同步到苹果日历、Google 日历等</div>
         </div>
-        <div style="background:var(--bg-alt,#f5f5f5);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;word-break:break-all;color:var(--text-soft);font-family:monospace,sans-serif">${icalUrl}</div>
-        <div style="display:flex;gap:8px">
-          <button class="btn-secondary" id="copy-ical-link" style="flex:1">复制链接</button>
-          <a href="${icalUrl.replace('https://', 'webcal://')}" class="btn-primary" style="flex:1;text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center">添加到苹果日历</a>
+        ${icalCats.map(c => `
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--text)">
+            <span style="width:10px;height:10px;border-radius:50%;background:${c.color};display:inline-block"></span>${c.label}
+          </div>
+          <div style="background:var(--bg-alt,#f5f5f5);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;word-break:break-all;color:var(--text-soft);font-family:monospace,sans-serif">${c.url}</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-secondary copy-ical-link" data-url="${c.url}" style="flex:1">复制链接</button>
+            <a href="${c.url.replace('https://', 'webcal://')}" class="btn-primary" style="flex:1;text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center">添加到苹果日历</a>
+          </div>
         </div>
-        <div style="font-size:11px;color:var(--text-faint,#aaa)">苹果日历 → 添加日历 → 订阅日历，粘贴此链接</div>
+        `).join('')}
+        <div style="font-size:11px;color:var(--text-faint,#aaa)">苹果日历 → 添加日历 → 订阅日历，粘贴对应类别的链接</div>
       </div>
     </div>
     <div class="section-title">提醒时间</div>
@@ -259,12 +272,11 @@ function renderSettings() {
     </div>
   `;
 
-  const _copyIcal = main.querySelector('#copy-ical-link');
-  if (_copyIcal) {
-    _copyIcal.onclick = () => {
-      navigator.clipboard.writeText(icalUrl).then(() => toast('链接已复制')).catch(() => toast('复制失败，请手动复制'));
+  main.querySelectorAll('.copy-ical-link').forEach(btn => {
+    btn.onclick = () => {
+      navigator.clipboard.writeText(btn.dataset.url).then(() => toast('链接已复制')).catch(() => toast('复制失败，请手动复制'));
     };
-  }
+  });
 
   main.querySelectorAll('.seg-control button[data-th]').forEach(b => {
     b.onclick = () => {
