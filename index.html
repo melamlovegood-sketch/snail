@@ -2496,9 +2496,10 @@ textarea.api-input {
 })();
 
 const QWEN_URL = 'https://snail-api.friday0.top/api/qwen';
+const AI_CONFIG_DEFAULTS = { provider: 'qwen', apiKey: '', model: 'qwen-plus', baseURL: '', visionModel: 'qwen-vl-plus' };
 function getAiConfig() {
-  try { const r = localStorage.getItem('aiConfig'); if (r) return JSON.parse(r); } catch(_) {}
-  return { provider: 'qwen', apiKey: '', model: 'qwen-plus' };
+  try { const r = localStorage.getItem('aiConfig'); if (r) return { ...AI_CONFIG_DEFAULTS, ...JSON.parse(r) }; } catch(_) {}
+  return { ...AI_CONFIG_DEFAULTS };
 }
 
 /* ---------------- 全局状态 ---------------- */
@@ -4286,9 +4287,10 @@ async function handleImageUpload(file) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        provider: 'qwen',
-        apiKey: _imgCfg.provider === 'qwen' ? _imgCfg.apiKey : '',
-        model: 'qwen-vl-plus',
+        provider: _imgCfg.provider,
+        apiKey: _imgCfg.apiKey,
+        baseURL: _imgCfg.baseURL || '',
+        model: _imgCfg.visionModel || _imgCfg.model,
         max_tokens: 4096,
         messages: [
           { role: 'system', content: sysPrompt },
@@ -5576,6 +5578,7 @@ order 的排序原则：高优先级 + 有 startTime 的按时间排 + 拖延久
       body: JSON.stringify({
         provider: _mpCfg.provider,
         apiKey: _mpCfg.apiKey,
+        baseURL: _mpCfg.baseURL || '',
         model: _mpCfg.model,
         max_tokens: 1024,
         messages: [
@@ -5689,6 +5692,7 @@ B) 新任务格式：
       body: JSON.stringify({
         provider: _nlCfg.provider,
         apiKey: _nlCfg.apiKey,
+        baseURL: _nlCfg.baseURL || '',
         model: _nlCfg.model,
         max_tokens: 2048,
         messages: [
@@ -5855,6 +5859,7 @@ async function decomposeTask(taskId) {
       body: JSON.stringify({
         provider: _dcCfg.provider,
         apiKey: _dcCfg.apiKey,
+        baseURL: _dcCfg.baseURL || '',
         model: _dcCfg.model,
         max_tokens: 1024,
         messages: [
@@ -6526,6 +6531,7 @@ async function fetchBatchDeferAILine() {
     body: JSON.stringify({
       provider: _sumCfg.provider,
       apiKey: _sumCfg.apiKey,
+      baseURL: _sumCfg.baseURL || '',
       model: _sumCfg.model,
       max_tokens: 80,
       messages: [
@@ -6998,6 +7004,7 @@ async function aiSummary(view) {
       body: JSON.stringify({
         provider: _stCfg.provider,
         apiKey: _stCfg.apiKey,
+        baseURL: _stCfg.baseURL || '',
         model: _stCfg.model,
         max_tokens: 1024,
         messages: [
@@ -7246,6 +7253,7 @@ async function startCheckIn() {
       body: JSON.stringify({
         provider: _ciCfg.provider,
         apiKey: _ciCfg.apiKey,
+        baseURL: _ciCfg.baseURL || '',
         model: _ciCfg.model,
         max_tokens: 256,
         messages: [
@@ -7322,6 +7330,7 @@ async function sendChatMessage(text) {
       body: JSON.stringify({
         provider: _chatCfg.provider,
         apiKey: _chatCfg.apiKey,
+        baseURL: _chatCfg.baseURL || '',
         model: _chatCfg.model,
         max_tokens: 1024,
         messages
@@ -7531,7 +7540,13 @@ function renderSettings() {
             <option value="openai">OpenAI</option>
             <option value="claude">Claude</option>
             <option value="gemini">Gemini</option>
+            <option value="custom">自定义 / 中转站</option>
           </select>
+        </div>
+        <div id="ai-baseurl-row" style="display:none">
+          <div class="label" style="margin-bottom:6px">接口地址（baseURL）</div>
+          <input type="text" id="ai-baseurl" placeholder="https://your-relay.com/v1" style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:PingFang SC,sans-serif;font-size:14px;box-sizing:border-box">
+          <div class="desc" style="margin-top:4px">中转站的 OpenAI 兼容接口地址，通常以 /v1 结尾</div>
         </div>
         <div>
           <div class="label" style="margin-bottom:6px">API Key</div>
@@ -7541,8 +7556,15 @@ function renderSettings() {
           </div>
         </div>
         <div>
-          <div class="label" style="margin-bottom:6px">模型</div>
-          <select id="ai-model" style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:PingFang SC,sans-serif;font-size:14px"></select>
+          <div class="label" style="margin-bottom:6px">模型（文字）</div>
+          <input type="text" id="ai-model" list="ai-model-list" placeholder="如 qwen-plus" style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:PingFang SC,sans-serif;font-size:14px;box-sizing:border-box">
+          <datalist id="ai-model-list"></datalist>
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:6px">视觉模型（图片解析）</div>
+          <input type="text" id="ai-vision-model" list="ai-vision-list" placeholder="如 qwen-vl-plus" style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:PingFang SC,sans-serif;font-size:14px;box-sizing:border-box">
+          <datalist id="ai-vision-list"></datalist>
+          <div class="desc" style="margin-top:4px">截图解析任务时使用，必须填支持多模态（识图）的模型</div>
         </div>
         <button class="btn-primary" id="save-ai-config" style="align-self:flex-end">保存</button>
       </div>
@@ -7596,7 +7618,7 @@ function renderSettings() {
       <div style="padding:4px 0">
         <div class="faq-item">
           <div class="faq-q"><span>图片上传后显示「未识别任务」怎么办？</span><span class="faq-arrow">▶</span></div>
-          <div class="faq-a">图片解析已自动使用千问视觉模型（qwen-vl-plus），请确认你在设置页填写了千问的 API Key。如果没有千问 Key，可前往 <a href="https://bailian.console.aliyun.com" target="_blank">bailian.console.aliyun.com</a> 注册获取。</div>
+          <div class="faq-a">图片解析使用你在设置页配置的「视觉模型」，该模型必须支持多模态（识图），如千问的 qwen-vl-plus、OpenAI 的 gpt-4o 等。请确认已正确填写视觉模型并填入对应的 API Key。如果没有千问 Key，可前往 <a href="https://bailian.console.aliyun.com" target="_blank">bailian.console.aliyun.com</a> 注册获取。</div>
         </div>
         <div class="faq-item">
           <div class="faq-q"><span>AI 调用失败，提示「未提供 API Key」？</span><span class="faq-arrow">▶</span></div>
@@ -7604,7 +7626,7 @@ function renderSettings() {
         </div>
         <div class="faq-item">
           <div class="faq-q"><span>支持哪些 AI 服务？在哪里获取 Key？</span><span class="faq-arrow">▶</span></div>
-          <div class="faq-a">目前支持以下五家，点击链接注册获取 Key：<br>· 千问（推荐）：<a href="https://bailian.console.aliyun.com" target="_blank">bailian.console.aliyun.com</a><br>· DeepSeek：<a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a><br>· OpenAI：<a href="https://platform.openai.com" target="_blank">platform.openai.com</a><br>· Claude：<a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a><br>· Gemini：<a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a></div>
+          <div class="faq-a">目前支持以下官方供应商，点击链接注册获取 Key：<br>· 千问（推荐）：<a href="https://bailian.console.aliyun.com" target="_blank">bailian.console.aliyun.com</a><br>· DeepSeek：<a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a><br>· OpenAI：<a href="https://platform.openai.com" target="_blank">platform.openai.com</a><br>· Claude：<a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a><br>· Gemini：<a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a><br><br>此外还支持「自定义 / 中转站」：选择该供应商后填入中转站的接口地址（baseURL）、API Key 和模型名即可，按 OpenAI 兼容格式调用。</div>
         </div>
         <div class="faq-item">
           <div class="faq-q"><span>数据会丢失吗？</span><span class="faq-arrow">▶</span></div>
@@ -7662,34 +7684,75 @@ function renderSettings() {
     openai:   ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
     claude:   ['claude-3-5-haiku-20241022', 'claude-3-7-sonnet-20250219'],
     gemini:   ['gemini-2.0-flash', 'gemini-2.5-pro-preview-05-06'],
+    custom:   [],
+  };
+  // 各供应商旗下支持多模态（识图）的模型，作为视觉模型输入框的建议项
+  const _PROVIDER_VISION_MODELS = {
+    qwen:     ['qwen-vl-plus', 'qwen-vl-max'],
+    deepseek: [],
+    openai:   ['gpt-4o', 'gpt-4o-mini'],
+    claude:   ['claude-3-5-sonnet-20241022', 'claude-3-7-sonnet-20250219'],
+    gemini:   ['gemini-2.0-flash', 'gemini-2.5-pro-preview-05-06'],
+    custom:   [],
   };
   const _aiCfg = getAiConfig();
   const _provSel = main.querySelector('#ai-provider');
-  const _modelSel = main.querySelector('#ai-model');
+  const _modelInput = main.querySelector('#ai-model');
+  const _modelList = main.querySelector('#ai-model-list');
+  const _visionInput = main.querySelector('#ai-vision-model');
+  const _visionList = main.querySelector('#ai-vision-list');
+  const _baseurlRow = main.querySelector('#ai-baseurl-row');
+  const _baseurlInput = main.querySelector('#ai-baseurl');
   const _apikeyInput = main.querySelector('#ai-apikey');
   const _apikeyToggle = main.querySelector('#ai-apikey-toggle');
 
-  function _fillModels(provider, selectedModel) {
-    const models = _PROVIDER_MODELS[provider] || _PROVIDER_MODELS.qwen;
-    _modelSel.innerHTML = models.map(m => `<option value="${m}"${m === selectedModel ? ' selected' : ''}>${m}</option>`).join('');
+  function _fillDatalist(el, models) {
+    el.innerHTML = (models || []).map(m => `<option value="${m}"></option>`).join('');
+  }
+  function _syncProviderUI(provider) {
+    _fillDatalist(_modelList, _PROVIDER_MODELS[provider] || []);
+    _fillDatalist(_visionList, _PROVIDER_VISION_MODELS[provider] || []);
+    _baseurlRow.style.display = provider === 'custom' ? '' : 'none';
   }
 
   _provSel.value = _aiCfg.provider || 'qwen';
   _apikeyInput.value = _aiCfg.apiKey || '';
-  _fillModels(_aiCfg.provider || 'qwen', _aiCfg.model);
+  _baseurlInput.value = _aiCfg.baseURL || '';
+  _modelInput.value = _aiCfg.model || '';
+  _visionInput.value = _aiCfg.visionModel || '';
+  _syncProviderUI(_provSel.value);
 
-  _provSel.onchange = () => _fillModels(_provSel.value, null);
+  _provSel.onchange = () => {
+    const p = _provSel.value;
+    _syncProviderUI(p);
+    // 切换到已知供应商时，给未填写的模型/视觉模型一个默认建议值
+    if (p !== 'custom') {
+      if (!_modelInput.value) _modelInput.value = (_PROVIDER_MODELS[p] || [])[0] || '';
+      if (!_visionInput.value) _visionInput.value = (_PROVIDER_VISION_MODELS[p] || [])[0] || '';
+    }
+  };
   _apikeyToggle.onclick = () => {
     const show = _apikeyInput.type === 'password';
     _apikeyInput.type = show ? 'text' : 'password';
     _apikeyToggle.textContent = show ? '隐藏' : '显示';
   };
   main.querySelector('#save-ai-config').onclick = () => {
+    const provider = _provSel.value;
+    if (provider === 'custom' && !_baseurlInput.value.trim()) {
+      toast('请填写中转站的接口地址');
+      return;
+    }
+    if (!_modelInput.value.trim()) {
+      toast('请填写模型名称');
+      return;
+    }
     try {
       localStorage.setItem('aiConfig', JSON.stringify({
-        provider: _provSel.value,
+        provider,
         apiKey: _apikeyInput.value.trim(),
-        model: _modelSel.value,
+        baseURL: _baseurlInput.value.trim(),
+        model: _modelInput.value.trim(),
+        visionModel: _visionInput.value.trim(),
       }));
     } catch(_) {}
     toast('已保存');

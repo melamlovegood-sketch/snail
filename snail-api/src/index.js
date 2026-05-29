@@ -17,6 +17,17 @@ function genCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+// 把中转站的 baseURL 规整为 OpenAI 兼容的 chat/completions 端点
+function normalizeCustomEndpoint(baseURL) {
+  let u = (baseURL || '').trim();
+  if (!u) return '';
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  u = u.replace(/\/+$/, '');
+  if (/\/chat\/completions$/.test(u)) return u;
+  if (/\/v\d+$/.test(u)) return u + '/chat/completions';
+  return u + '/v1/chat/completions';
+}
+
 const EMAIL_RE = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
 
 function sbFetch(env, path, opts = {}) {
@@ -259,7 +270,7 @@ async function handleQwen(request, env) {
     return jsonResp({ error: '请求格式错误' }, 400);
   }
 
-  const { provider = 'qwen', apiKey: clientKey, ...rest } = body;
+  const { provider = 'qwen', apiKey: clientKey, baseURL, ...rest } = body;
 
   const envKey = env[`${provider.toUpperCase()}_API_KEY`] || '';
   const apiKey = (clientKey && clientKey.trim()) ? clientKey.trim() : envKey;
@@ -269,6 +280,21 @@ async function handleQwen(request, env) {
     deepseek: 'https://api.deepseek.com/chat/completions',
     openai: 'https://api.openai.com/v1/chat/completions',
   };
+
+  // 自定义 / 中转站：用用户提供的 baseURL，按 OpenAI 兼容格式转发
+  if (provider === 'custom') {
+    const endpoint = normalizeCustomEndpoint(baseURL);
+    if (!endpoint) {
+      return jsonResp({ error: '缺少有效的中转站接口地址 (baseURL)' }, 400);
+    }
+    const upstream = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify(rest),
+    });
+    const data = await upstream.json();
+    return jsonResp(data, upstream.status);
+  }
 
   if (openaiEndpoints[provider]) {
     const upstream = await fetch(openaiEndpoints[provider], {
