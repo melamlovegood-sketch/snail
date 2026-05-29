@@ -333,10 +333,11 @@ h3 {
   transition: width 0.25s ease, background 0.25s ease;
 }
 .pri-edge:hover::before { width: 4px; }
-.task-card[data-priority="urgent-important"] .pri-edge::before { background: var(--pri-urgent-important); }
-.task-card[data-priority="urgent-unimportant"] .pri-edge::before { background: var(--pri-urgent-unimportant); }
-.task-card[data-priority="important"] .pri-edge::before { background: var(--pri-important); }
-.task-card[data-priority="normal"] .pri-edge::before { background: var(--pri-normal); }
+/* 左侧色条按任务类别上色（与右侧 S/R/G/C 徽章保持一致） */
+.task-card[data-cat="S"] .pri-edge::before { background: var(--cat-s); }
+.task-card[data-cat="R"] .pri-edge::before { background: var(--cat-r); }
+.task-card[data-cat="G"] .pri-edge::before { background: var(--cat-g); }
+.task-card[data-cat="C"] .pri-edge::before { background: var(--cat-c); }
 
 /* 旧 .pri-dot 仍保留：用于循环任务卡片、日程时间轴等其它视觉位置 */
 .pri-dot {

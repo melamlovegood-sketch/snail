@@ -674,7 +674,7 @@ function renderPlans() {
           <span class="date-label">${fmtDate(date)}</span>
           <span class="text-xs text-faint">${groups[date].length} 项</span>
         </div>
-        ${sortTasks(undoneTasks).map(t => taskCardHTML(t)).join('')}
+        ${sortTasksByTime(undoneTasks).map(t => taskCardHTML(t)).join('')}
         ${renderDoneSection(doneTasks, date)}
       </div>
     `;

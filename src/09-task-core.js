@@ -688,6 +688,25 @@ function sortTasks(arr) {
   });
 }
 
+/* 全部计划页：按开始时间升序排列，无时间的排在最后；同一时间再按优先级、创建时间 */
+function sortTasksByTime(arr) {
+  return arr.slice().sort((a, b) => {
+    const ta = a.startTime || null;
+    const tb = b.startTime || null;
+    if (ta && tb) {
+      if (ta !== tb) return ta.localeCompare(tb);
+    } else if (ta) {
+      return -1;
+    } else if (tb) {
+      return 1;
+    }
+    const pa = PRI_ORDER[a.priority] ?? 9;
+    const pb = PRI_ORDER[b.priority] ?? 9;
+    if (pa !== pb) return pa - pb;
+    return (a.createdAt || 0) - (b.createdAt || 0);
+  });
+}
+
 function deadlineTag(deadline) {
   if (!deadline) return '';
   const d = diffDays(todayStr(), deadline);
@@ -743,7 +762,7 @@ function taskCardHTML(t, opts={}) {
   const wrapEnd = isDeferEligible(t) ? '</div>' : '';
 
   return wrapStart + `
-    <div class="task-card ${isDone ? 'done' : ''}" data-task-id="${t.id}" data-priority="${t.priority}">
+    <div class="task-card ${isDone ? 'done' : ''}" data-task-id="${t.id}" data-priority="${t.priority}" data-cat="${t.cat}">
       <button class="pri-edge" onclick="event.stopPropagation(); showPriorityPicker('${t.id}', this)" title="点击修改优先级" aria-label="优先级 ${t.priority}"></button>
       <button class="complete-btn" onclick="event.stopPropagation(); toggleComplete('${t.id}')" title="${isDone ? '取消完成' : '标记完成'}"></button>
       <div class="task-main" onclick="showTaskDetailModal('${t.id}')" title="点击查看详情">
