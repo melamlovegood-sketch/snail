@@ -32,6 +32,8 @@ function loadAiProfiles() {
 }
 function saveAiProfiles(data) {
   try { localStorage.setItem('aiProfiles', JSON.stringify(data)); } catch(_) {}
+  // 已登录则把 AI 配置一并同步到云端（含 API Key，全量同步）
+  try { if (typeof scheduleAiCloudSync === 'function') scheduleAiCloudSync(); } catch(_) {}
 }
 function getAiConfig() {
   const { active, profiles } = loadAiProfiles();
@@ -83,6 +85,7 @@ let cloudUser = null;          // { id, email }
 let authStatus = 'unauth';     // 'unauth' | 'guest' | 'cloud'
 let syncStatus = 'idle';       // 'idle' | 'synced' | 'syncing' | 'error' | 'offline'
 let syncDebounceTimer = null;
+let aiSyncDebounceTimer = null;  // AI 配置云同步去抖
 let realtimeChannel = null;
 
 /* ---------------- 工具函数 ---------------- */
