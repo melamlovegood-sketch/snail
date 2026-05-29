@@ -87,7 +87,14 @@ function positionPopover(pop, anchor) {
 }
 
 function findTask(id) {
-  return state.tasks.find(t => t.id === id) || state.done.find(t => t.id === id);
+  return state.tasks.find(t => t.id === id)
+      || state.done.find(t => t.id === id)
+      || (state.archive || []).find(t => t.id === id);
+}
+
+// 任务是否「已完成」：在当日 done 镜像或永久归档里都算已完成（归档是跨设备同步来源）。
+function isCompleted(id) {
+  return state.done.some(t => t.id === id) || (state.archive || []).some(t => t.id === id);
 }
 
 /* ---------------- 已完成任务永久归档 ---------------- */
@@ -96,6 +103,7 @@ function archiveTask(t) {
   if (!state.archive) state.archive = [];
   const clone = JSON.parse(JSON.stringify(t));
   clone.timerState = 'done';
+  if (!clone.completedAt) clone.completedAt = Date.now();   // 用于「已完成」页同日内排序
   const i = state.archive.findIndex(x => x.id === clone.id);
   if (i >= 0) state.archive[i] = clone;
   else state.archive.push(clone);
@@ -103,6 +111,20 @@ function archiveTask(t) {
 function removeFromArchive(id) {
   if (!state.archive) { state.archive = []; return; }
   state.archive = state.archive.filter(x => x.id !== id);
+}
+
+/* 用归档重建「今日已完成」镜像。
+ * 完成任务时本地同时写入 done 与 archive；但从云端同步只会写 archive（mergeCloudArchive /
+ * 实时事件）。这里让 state.done 的「今日完成项」始终与归档一致，使所有设备都用划线显示
+ * 当天完成的任务。每次 render 前调用，幂等、纯内存（不落盘、不触发云同步）。*/
+function reconcileDoneFromArchive() {
+  const today = todayStr();
+  if (!state.archive) state.archive = [];
+  const archivedTodayById = {};
+  state.archive.forEach(t => { if (t.date === today) archivedTodayById[t.id] = t; });
+  // 保留非今日的 done 项（跨日通常已清空，这里兜底），今日项一律以归档为准
+  const keptNonToday = state.done.filter(t => t.date !== today);
+  state.done = keptNonToday.concat(Object.values(archivedTodayById));
 }
 
 /* ---------------- 计时器 ---------------- */
@@ -171,7 +193,7 @@ function startTimerTick() {
 
 /* ---------------- 完成任务 ---------------- */
 function toggleComplete(taskId) {
-  const isCurrentlyDone = state.done.some(t => t.id === taskId);
+  const isCurrentlyDone = isCompleted(taskId);
   if (!isCurrentlyDone) {
     // 任务勾选完成：先执行下滑淡出动画，200ms 后再更新状态
     const cardEl = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
@@ -228,17 +250,24 @@ function _doToggleComplete(taskId) {
       }, 800);
     }
   } else {
+    // 取消完成：任务可能在今日 done 镜像里，也可能仅存在于归档（历史完成项，例如「已完成」页）
     idx = state.done.findIndex(t => t.id === taskId);
+    let t = null;
     if (idx >= 0) {
-      const t = state.done[idx];
+      t = state.done[idx];
+      state.done.splice(idx, 1);
+    } else {
+      t = (state.archive || []).find(x => x.id === taskId) || null;
+    }
+    if (t) {
       t.timerState = 'idle';
       t.durActual = null;              // 取消完成 → 不再算作已完成（dur_actual 是云端「已完成」信号）
+      delete t.completedAt;
       if (t.recurId) {
         delete state.recurDoneLog[`${t.recurId}_${t.date}`];
       }
-      state.done.splice(idx, 1);
       removeFromArchive(t.id);         // 移出永久归档
-      state.tasks.push(t);
+      if (!state.tasks.some(x => x.id === t.id)) state.tasks.push(t);
       cloudUnarchiveTask(t);           // 云端恢复为活跃任务（清除 dur_actual / deleted_at）
       if (t.date === todayStr()) recomputeDailyRate();
     }
@@ -748,7 +777,7 @@ function escapeHtml(s) {
 }
 
 function taskCardHTML(t, opts={}) {
-  const isDone = state.done.some(d => d.id === t.id);
+  const isDone = isCompleted(t.id);
   let timerHTML = '';
   if (t.timerState === 'idle' && !isDone) {
     timerHTML = `<button class="timer-btn" onclick="startTimer('${t.id}')" title="开始计时">▶</button>`;

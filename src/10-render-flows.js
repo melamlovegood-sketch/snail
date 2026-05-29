@@ -630,41 +630,88 @@ function renderDoneSection(doneItems, groupKey) {
   }
 }
 
+/* 「已完成」标签页：把永久归档（state.archive，跨设备同步）按日期分组展示。
+ * 归档是所有设备完成记录的统一来源，因此这里的列表在各设备上一致。*/
+function renderCompletedArchive() {
+  const archive = (state.archive || []).slice();
+  if (archive.length === 0) {
+    return `
+      <div class="empty">
+        <div class="big">✓</div>
+        <div>还没有已完成的事项</div>
+        <div class="text-sm" style="margin-top:8px">完成任务后会按日期归档在这里</div>
+      </div>
+    `;
+  }
+  const completedTime = t => t.completedAt || (t._updatedAt ? new Date(t._updatedAt).getTime() : 0);
+  // 按任务日期分组
+  const groups = {};
+  archive.forEach(t => {
+    const d = t.date || todayStr();
+    (groups[d] = groups[d] || []).push(t);
+  });
+  const dates = Object.keys(groups).sort().reverse();   // 最近的日期在前
+  return dates.map(date => {
+    const items = groups[date].slice().sort((a, b) => completedTime(b) - completedTime(a));
+    return `
+      <div class="task-group">
+        <div class="task-group-header">
+          <span class="date-label">${fmtDate(date)}</span>
+          <span class="text-xs text-faint">${items.length} 项</span>
+        </div>
+        ${items.map(t => taskCardHTML(t)).join('')}
+      </div>
+    `;
+  }).join('');
+}
+
 function renderPlans() {
   const main = document.getElementById('main');
+  // 「已完成」是只读归档视图，没有可输入项 → 隐藏输入框
+  const showInput = inputMode !== 'done';
   main.innerHTML = `
     ${renderUndoBanner()}
     ${renderMorningBanner()}
     ${renderProcrastinationBanner()}
+    ${showInput ? `
     <div class="input-bar">
       <input id="task-input" placeholder="${inputMode === 'memo' ? '记一笔...（按 Enter 保存）' : '新任务或操作指令，例：把今天 C 类推到明天'}" autocomplete="off">
       ${inputMode === 'task' ? `
         <button class="btn-icon" id="img-btn" title="截图解析">⎙</button>
         <button class="btn-icon" id="fav-btn" title="收藏">★</button>
       ` : ''}
-    </div>
-    <div class="input-mode-tabs">
+    </div>` : ''}
+    <div class="input-mode-tabs${showInput ? '' : ' detached'}">
       <button class="input-mode-tab${inputMode === 'task' ? ' active' : ''}" onclick="setInputMode('task')">任务</button>
       <button class="input-mode-tab${inputMode === 'memo' ? ' active' : ''}" onclick="setInputMode('memo')">记一笔</button>
+      <button class="input-mode-tab${inputMode === 'done' ? ' active' : ''}" onclick="setInputMode('done')">已完成</button>
     </div>
-    ${renderMemoBlock()}
+    ${inputMode === 'done' ? '' : renderMemoBlock()}
     <div id="plans-list"></div>
   `;
 
-  const input = main.querySelector('#task-input');
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-      if (inputMode === 'memo') {
-        addMemo(input.value);
-      } else {
-        handleTextInput(input.value);
+  if (showInput) {
+    const input = main.querySelector('#task-input');
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        if (inputMode === 'memo') {
+          addMemo(input.value);
+        } else {
+          handleTextInput(input.value);
+        }
+        input.value = '';
       }
-      input.value = '';
+    });
+    if (inputMode === 'task') {
+      main.querySelector('#img-btn').onclick = () => document.getElementById('img-input').click();
+      main.querySelector('#fav-btn').onclick = showFavoritesQuickPick;
     }
-  });
-  if (inputMode === 'task') {
-    main.querySelector('#img-btn').onclick = () => document.getElementById('img-input').click();
-    main.querySelector('#fav-btn').onclick = showFavoritesQuickPick;
+  }
+
+  // 「已完成」标签页：读取永久归档，按日期（最近优先）分组展示
+  if (inputMode === 'done') {
+    main.querySelector('#plans-list').innerHTML = renderCompletedArchive();
+    return;
   }
 
   // 按日期分组
