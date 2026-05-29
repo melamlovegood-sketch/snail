@@ -2497,8 +2497,43 @@ textarea.api-input {
 
 const QWEN_URL = 'https://snail-api.friday0.top/api/qwen';
 const AI_CONFIG_DEFAULTS = { provider: 'qwen', apiKey: '', model: 'qwen-plus', baseURL: '', visionModel: 'qwen-vl-plus' };
+const AI_PROVIDER_LABELS = { qwen: '千问', deepseek: 'DeepSeek', openai: 'OpenAI', claude: 'Claude', gemini: 'Gemini', custom: '自定义 / 中转站' };
+
+/**
+ * AI 模型配置支持多套并存：
+ * - 新存储键 'aiProfiles' = { active: <id>, profiles: [{ id, name, provider, apiKey, baseURL, model, visionModel }] }
+ * - 旧键 'aiConfig'（单套配置）会在首次读取时自动迁移成一条 profile，迁移后仍保留旧键作备份。
+ * - getAiConfig() 始终返回「当前选中」的那套配置，因此所有调用方无需改动。
+ */
+function loadAiProfiles() {
+  try {
+    const r = localStorage.getItem('aiProfiles');
+    if (r) {
+      const o = JSON.parse(r);
+      if (o && Array.isArray(o.profiles)) return { active: o.active || (o.profiles[0] && o.profiles[0].id) || '', profiles: o.profiles };
+    }
+  } catch(_) {}
+  // 从旧的单套 aiConfig 迁移
+  try {
+    const old = localStorage.getItem('aiConfig');
+    if (old) {
+      const c = JSON.parse(old) || {};
+      const id = uid();
+      const prof = { id, name: AI_PROVIDER_LABELS[c.provider] || '默认配置', ...AI_CONFIG_DEFAULTS, ...c };
+      const data = { active: id, profiles: [prof] };
+      saveAiProfiles(data);
+      return data;
+    }
+  } catch(_) {}
+  return { active: '', profiles: [] };
+}
+function saveAiProfiles(data) {
+  try { localStorage.setItem('aiProfiles', JSON.stringify(data)); } catch(_) {}
+}
 function getAiConfig() {
-  try { const r = localStorage.getItem('aiConfig'); if (r) return { ...AI_CONFIG_DEFAULTS, ...JSON.parse(r) }; } catch(_) {}
+  const { active, profiles } = loadAiProfiles();
+  const p = profiles.find(x => x.id === active) || profiles[0];
+  if (p) return { ...AI_CONFIG_DEFAULTS, ...p };
   return { ...AI_CONFIG_DEFAULTS };
 }
 
@@ -2534,6 +2569,7 @@ let checkInMode = false;  // 助手 tab 是否进入"今日复盘"模式
 let focusPins = [];       // 今日专注的任务 id 列表（最多 3 个）
 let focusHintSeen = false; // 是否已展示过首次引导（一次性）
 let doneCollapsed = {};   // 各分组已完成任务折叠状态 { [groupKey]: true/false }
+let aiEditingId = null;   // AI 配置当前正在编辑的 profile id；null 表示「新增配置」
 
 /* ============== Supabase 云同步 ============== */
 const SUPABASE_URL = 'https://ckwcobbuserktcjrmgly.supabase.co';
@@ -7804,7 +7840,14 @@ function renderSettings() {
 
     <div class="section-title">AI 模型配置</div>
     <div class="settings-section">
-      <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:12px">
+      <div id="ai-profile-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      <button class="btn-secondary" id="ai-add-profile" style="align-self:flex-start;margin:10px 0 2px">+ 新增配置</button>
+      <div class="settings-row" style="flex-direction:column; align-items:stretch; gap:12px; border-top:1px solid var(--border); padding-top:14px; margin-top:4px">
+        <div id="ai-edit-title" class="label" style="font-weight:600"></div>
+        <div>
+          <div class="label" style="margin-bottom:6px">配置名称</div>
+          <input type="text" id="ai-name" placeholder="如 我的千问 / 公司中转站" style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:PingFang SC,sans-serif;font-size:14px;box-sizing:border-box">
+        </div>
         <div>
           <div class="label" style="margin-bottom:6px">供应商</div>
           <select id="ai-provider" style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:PingFang SC,sans-serif;font-size:14px">
@@ -7839,7 +7882,10 @@ function renderSettings() {
           <datalist id="ai-vision-list"></datalist>
           <div class="desc" style="margin-top:4px">截图解析任务时使用，必须填支持多模态（识图）的模型</div>
         </div>
-        <button class="btn-primary" id="save-ai-config" style="align-self:flex-end">保存</button>
+        <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center">
+          <button class="btn-secondary" id="cancel-ai-edit" style="display:none">取消</button>
+          <button class="btn-primary" id="save-ai-config">保存</button>
+        </div>
       </div>
     </div>
 
@@ -7968,8 +8014,8 @@ function renderSettings() {
     gemini:   ['gemini-2.0-flash', 'gemini-2.5-pro-preview-05-06'],
     custom:   [],
   };
-  const _aiCfg = getAiConfig();
   const _provSel = main.querySelector('#ai-provider');
+  const _nameInput = main.querySelector('#ai-name');
   const _modelInput = main.querySelector('#ai-model');
   const _modelList = main.querySelector('#ai-model-list');
   const _visionInput = main.querySelector('#ai-vision-model');
@@ -7978,6 +8024,9 @@ function renderSettings() {
   const _baseurlInput = main.querySelector('#ai-baseurl');
   const _apikeyInput = main.querySelector('#ai-apikey');
   const _apikeyToggle = main.querySelector('#ai-apikey-toggle');
+  const _editTitle = main.querySelector('#ai-edit-title');
+  const _cancelBtn = main.querySelector('#cancel-ai-edit');
+  const _listEl = main.querySelector('#ai-profile-list');
 
   function _fillDatalist(el, models) {
     el.innerHTML = (models || []).map(m => `<option value="${m}"></option>`).join('');
@@ -7987,13 +8036,95 @@ function renderSettings() {
     _fillDatalist(_visionList, _PROVIDER_VISION_MODELS[provider] || []);
     _baseurlRow.style.display = provider === 'custom' ? '' : 'none';
   }
-
-  _provSel.value = _aiCfg.provider || 'qwen';
-  _apikeyInput.value = _aiCfg.apiKey || '';
-  _baseurlInput.value = _aiCfg.baseURL || '';
-  _modelInput.value = _aiCfg.model || '';
-  _visionInput.value = _aiCfg.visionModel || '';
-  _syncProviderUI(_provSel.value);
+  // 把一套配置填进编辑表单（prof 为空则按新增的默认值）
+  function _loadForm(prof) {
+    const c = { ...AI_CONFIG_DEFAULTS, name: '', ...(prof || {}) };
+    if (!prof) { c.provider = 'qwen'; c.apiKey = ''; c.baseURL = ''; c.model = ''; c.visionModel = ''; }
+    _nameInput.value = c.name || '';
+    _provSel.value = c.provider || 'qwen';
+    _apikeyInput.value = c.apiKey || '';
+    _baseurlInput.value = c.baseURL || '';
+    _modelInput.value = c.model || '';
+    _visionInput.value = c.visionModel || '';
+    _apikeyInput.type = 'password';
+    _apikeyToggle.textContent = '显示';
+    _syncProviderUI(_provSel.value);
+  }
+  function _renderEditState() {
+    if (aiEditingId) {
+      const p = loadAiProfiles().profiles.find(x => x.id === aiEditingId);
+      _editTitle.textContent = '编辑配置' + (p && p.name ? '：' + p.name : '');
+      _cancelBtn.style.display = '';
+    } else {
+      _editTitle.textContent = '新增配置';
+      _cancelBtn.style.display = 'none';
+    }
+  }
+  function _renderProfileList() {
+    const { active, profiles } = loadAiProfiles();
+    if (!profiles.length) {
+      _listEl.innerHTML = '<div class="settings-row text-soft" style="padding:4px 0">还没有配置，请在下方新增。</div>';
+      return;
+    }
+    _listEl.innerHTML = profiles.map(p => {
+      const isActive = p.id === active;
+      const summary = (AI_PROVIDER_LABELS[p.provider] || p.provider || '') + ' · ' + (p.model || '—');
+      const dot = isActive
+        ? '<span style="flex:none;width:16px;height:16px;border-radius:50%;border:5px solid var(--accent);box-sizing:border-box"></span>'
+        : '<span style="flex:none;width:16px;height:16px;border-radius:50%;border:2px solid var(--border);box-sizing:border-box"></span>';
+      return `<div class="ai-prof-row" data-id="${p.id}" style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid ${isActive ? 'var(--accent)' : 'var(--border)'};border-radius:8px;cursor:pointer;${isActive ? 'background:var(--accent-soft)' : ''}">
+        ${dot}
+        <div style="flex:1;min-width:0">
+          <div class="label" style="font-weight:600">${escapeHtml(p.name || '未命名配置')}${isActive ? ' <span style="color:var(--accent);font-weight:400;font-size:12px">· 使用中</span>' : ''}</div>
+          <div class="desc" style="margin-top:2px">${escapeHtml(summary)}</div>
+        </div>
+        <button type="button" class="icon-btn ai-prof-edit" data-id="${p.id}" title="编辑">✎</button>
+        <button type="button" class="icon-btn ai-prof-del" data-id="${p.id}" title="删除">✕</button>
+      </div>`;
+    }).join('');
+    _listEl.querySelectorAll('.ai-prof-row').forEach(row => {
+      row.onclick = () => {
+        const id = row.dataset.id;
+        const d = loadAiProfiles();
+        if (d.active === id) return;
+        d.active = id;
+        saveAiProfiles(d);
+        const pr = d.profiles.find(x => x.id === id);
+        toast('已切换为「' + (pr && pr.name || '配置') + '」');
+        _renderProfileList();
+      };
+    });
+    _listEl.querySelectorAll('.ai-prof-edit').forEach(b => {
+      b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); _startEdit(b.dataset.id); };
+    });
+    _listEl.querySelectorAll('.ai-prof-del').forEach(b => {
+      b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); _deleteProfile(b.dataset.id); };
+    });
+  }
+  function _startNew() {
+    aiEditingId = null;
+    _loadForm(null);
+    _renderEditState();
+  }
+  function _startEdit(id) {
+    const p = loadAiProfiles().profiles.find(x => x.id === id);
+    if (!p) return;
+    aiEditingId = id;
+    _loadForm(p);
+    _renderEditState();
+    _editTitle.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function _deleteProfile(id) {
+    const d = loadAiProfiles();
+    const p = d.profiles.find(x => x.id === id);
+    if (!confirm('确认删除配置「' + (p && p.name || '') + '」？')) return;
+    d.profiles = d.profiles.filter(x => x.id !== id);
+    if (d.active === id) d.active = (d.profiles[0] && d.profiles[0].id) || '';
+    saveAiProfiles(d);
+    if (aiEditingId === id) _startNew();
+    _renderProfileList();
+    toast('已删除');
+  }
 
   _provSel.onchange = () => {
     const p = _provSel.value;
@@ -8009,6 +8140,8 @@ function renderSettings() {
     _apikeyInput.type = show ? 'text' : 'password';
     _apikeyToggle.textContent = show ? '隐藏' : '显示';
   };
+  main.querySelector('#ai-add-profile').onclick = () => _startNew();
+  _cancelBtn.onclick = () => _startNew();
   main.querySelector('#save-ai-config').onclick = () => {
     const provider = _provSel.value;
     if (provider === 'custom' && !_baseurlInput.value.trim()) {
@@ -8019,17 +8152,42 @@ function renderSettings() {
       toast('请填写模型名称');
       return;
     }
-    try {
-      localStorage.setItem('aiConfig', JSON.stringify({
-        provider,
-        apiKey: _apikeyInput.value.trim(),
-        baseURL: _baseurlInput.value.trim(),
-        model: _modelInput.value.trim(),
-        visionModel: _visionInput.value.trim(),
-      }));
-    } catch(_) {}
+    const entry = {
+      name: _nameInput.value.trim() || (AI_PROVIDER_LABELS[provider] || '配置'),
+      provider,
+      apiKey: _apikeyInput.value.trim(),
+      baseURL: _baseurlInput.value.trim(),
+      model: _modelInput.value.trim(),
+      visionModel: _visionInput.value.trim(),
+    };
+    const d = loadAiProfiles();
+    if (aiEditingId && d.profiles.some(x => x.id === aiEditingId)) {
+      d.profiles = d.profiles.map(x => x.id === aiEditingId ? { ...x, ...entry } : x);
+    } else {
+      const id = uid();
+      d.profiles.push({ id, ...entry });
+      aiEditingId = id;
+    }
+    if (!d.active || !d.profiles.some(x => x.id === d.active)) d.active = aiEditingId;
+    saveAiProfiles(d);
+    _renderProfileList();
+    _renderEditState();
     toast('已保存');
   };
+
+  // 初始化：有配置则编辑当前选中的那套，否则进入新增态
+  (function _initAiSettings() {
+    const { active, profiles } = loadAiProfiles();
+    if (profiles.length) {
+      aiEditingId = (profiles.find(x => x.id === active) || profiles[0]).id;
+      _loadForm(profiles.find(x => x.id === aiEditingId));
+    } else {
+      aiEditingId = null;
+      _loadForm(null);
+    }
+    _renderProfileList();
+    _renderEditState();
+  })();
   main.querySelector('#export-data').onclick = exportData;
   main.querySelector('#import-data').onclick = () => document.getElementById('json-input').click();
   main.querySelector('#clear-data').onclick = async () => {
