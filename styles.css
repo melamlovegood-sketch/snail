@@ -1593,6 +1593,110 @@ textarea.api-input {
   color: var(--text-soft);
   font-style: italic;
 }
+
+/* 助手气泡内的「思考过程」折叠块：默认收起，点击展开 */
+.chat-msg .bubble details.think {
+  margin: 0 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+.chat-msg .bubble details.think:last-child { margin-bottom: 0; }
+.chat-msg .bubble details.think > summary {
+  cursor: pointer;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-soft);
+  list-style: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: normal;
+}
+.chat-msg .bubble details.think > summary::-webkit-details-marker { display: none; }
+.chat-msg .bubble details.think > summary::after {
+  content: '▸';
+  margin-left: auto;
+  font-size: 11px;
+  transition: transform 0.15s ease;
+}
+.chat-msg .bubble details.think[open] > summary::after { transform: rotate(90deg); }
+.chat-msg .bubble details.think .think-body {
+  margin: 0;
+  padding: 8px 10px 9px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+/* 助手气泡内的 Markdown 渲染：恢复正常排版（覆盖气泡的 pre-wrap） */
+.chat-msg .bubble .md { white-space: normal; }
+.chat-msg .bubble .md > :first-child { margin-top: 0; }
+.chat-msg .bubble .md > :last-child { margin-bottom: 0; }
+.chat-msg .bubble .md p { margin: 0 0 8px; }
+.chat-msg .bubble .md h1,
+.chat-msg .bubble .md h2,
+.chat-msg .bubble .md h3,
+.chat-msg .bubble .md h4 { margin: 12px 0 6px; line-height: 1.3; font-weight: 600; }
+.chat-msg .bubble .md h1 { font-size: 1.3em; }
+.chat-msg .bubble .md h2 { font-size: 1.2em; }
+.chat-msg .bubble .md h3 { font-size: 1.1em; }
+.chat-msg .bubble .md h4 { font-size: 1em; }
+.chat-msg .bubble .md ul,
+.chat-msg .bubble .md ol { margin: 4px 0 8px; padding-left: 1.4em; }
+.chat-msg .bubble .md li { margin: 2px 0; }
+.chat-msg .bubble .md li > p { margin: 0; }
+.chat-msg .bubble .md a { color: var(--accent); text-decoration: underline; }
+.chat-msg .bubble .md strong { font-weight: 600; }
+.chat-msg .bubble .md code {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.88em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-word;
+}
+.chat-msg .bubble .md pre {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+.chat-msg .bubble .md pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.85em;
+  white-space: pre;
+}
+.chat-msg .bubble .md blockquote {
+  margin: 8px 0;
+  padding: 2px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--text-soft);
+}
+.chat-msg .bubble .md hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+.chat-msg .bubble .md table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 0.92em;
+  display: block;
+  overflow-x: auto;
+}
+.chat-msg .bubble .md th,
+.chat-msg .bubble .md td {
+  border: 1px solid var(--border);
+  padding: 5px 9px;
+  text-align: left;
+}
+.chat-msg .bubble .md th { background: var(--bg-elev); font-weight: 600; }
+.chat-msg .bubble .md .katex-display { margin: 10px 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+.chat-msg .bubble .md .katex { font-size: 1.05em; }
 .chat-input-bar {
   display: flex;
   gap: 8px;
