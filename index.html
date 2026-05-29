@@ -4127,13 +4127,24 @@ function handleTextInput(text) {
   text = text.trim();
   if (!text) return;
 
-  // 操作指令优先：检测到关键词且有 API Key → 交给 AI 解析为 actions
+  // 统一默认走 AI：用用户配置的文字模型理解意图（新建任务 / 操作指令）
+  if (getApiKey()) {
+    callTaskAI(text);
+    return;
+  }
+
+  // 未配置 API Key → 回退本地正则解析
+  handleTextInputLocal(text);
+}
+
+// 本地正则解析路径（无 API Key 或 AI 失败时的回退）
+function handleTextInputLocal(text) {
+  text = text.trim();
+  if (!text) return;
+
+  // 操作指令需要 AI，本地无法处理
   if (isOperationCommand(text)) {
-    if (!getApiKey()) {
-      toast('操作指令需要先配置 API Key');
-      return;
-    }
-    callOperationAPI(text);
+    toast('操作指令需要先配置 API Key');
     return;
   }
 
@@ -5623,11 +5634,11 @@ function dismissMorningPlan() {
 
 /* ---------------- AI 任务拆解 ---------------- */
 /* ---------------- 自然语言批量操作 ---------------- */
-async function callOperationAPI(userText) {
+async function callTaskAI(userText) {
   const apiKey = getApiKey();
-  if (!apiKey) { toast('请先在设置中填入 API Key'); return; }
+  if (!apiKey) { handleTextInputLocal(userText); return; }
 
-  const loading = showLoading('AI 正在理解你的指令');
+  const loading = showLoading('AI 正在理解…');
   const today = todayStr();
   const trim = t => ({
     id: t.id, desc: t.desc, cat: t.cat, priority: t.priority,
@@ -5640,18 +5651,17 @@ async function callOperationAPI(userText) {
   };
 
   const sysPrompt = `你是用户的私人时间管理助手。
+今天是 ${today}。
 用户当前任务列表（JSON）：
 ${JSON.stringify(ctx)}
 
-今天是 ${today}。
+用户输入可能是：
+A) 对现有任务的操作（修改/删除/挪日期/改时长/改分类/改优先级等）
+B) 新建一个或多个任务（含循环任务）
 
-用户的指令可能是：
-A) 对现有任务的操作（修改/删除/挪日期等）
-B) 创建新任务
+请严格判断并只返回一个 JSON（不要 markdown，不要任何额外文字）。
 
-请严格判断并返回 JSON（不要 markdown，不要任何其它文字）：
-
-A) 操作指令格式：
+A) 操作指令：
 {
   "type": "operation",
   "actions": [
@@ -5664,25 +5674,55 @@ A) 操作指令格式：
   "summary": "我帮你把 3 个 C 类任务推到了明天"
 }
 
-B) 新任务格式：
+B) 新建任务：
 {
-  "type": "task",
-  "desc": "明天下午跑步",
-  "summary": "已添加 1 个新任务"
+  "type": "tasks",
+  "tasks": [
+    {
+      "desc": "描述（30字以内，去掉无关寒暄/地点/班级等）",
+      "date": "YYYY-MM-DD（单次任务日期；循环任务填首次出现日期）",
+      "startTime": "HH:MM 或 null",
+      "dur": 60,
+      "cat": "S/R/G/C",
+      "priority": "urgent-important/urgent-unimportant/important/normal",
+      "deadline": "YYYY-MM-DD 或 null",
+      "reminder": 30,
+      "notes": "备注：地点/链接等，无则空字符串",
+      "isRecur": false,
+      "recurFreq": "daily/weekly 或 null",
+      "recurWeekdays": []
+    }
+  ],
+  "summary": "识别到 X 个任务"
 }
-（如果是新任务，前端会用 desc 字段做本地解析。）
 
-新任务硬性规则（务必遵守）：
-- 一次输入只生成一个任务对象，desc 是单个任务的简短描述
-- 如果用户内容是一段话/群消息/多行聊天记录，提取其中最核心的一件事作为 desc
-- 不要拆分成多个任务，不要把同一段话里的不同细节当成不同任务
-- desc 控制在 30 字以内，去掉无关寒暄和上下文
+判断与操作规则：
+- taskId 必须是上面列表里真实存在的 id
+- 含 推到/挪到/顺延/改成/压缩/删除/不做了/清空 等且明确指向已有任务 → operation
+- "把今天所有 C 类推到明天"展开为多个 reschedule
+- "删除所有已完成"针对 done_today 展开为多个 delete
+- 否则一律按新建任务处理
 
-注意：
-- taskId 必须是输入列表里真实存在的 id
-- "把今天所有 C 类推到明天"应展开为多个 reschedule action
-- "删除所有已完成"应展开为多个 delete action，针对 done_today 里的项
-- summary 是给用户看的中文确认信息，简洁友好`;
+新建任务规则：
+- 用户一句话里若确实包含多件独立的事，可拆成多个任务；但不要把同一件事的细节拆开
+- "每天X" → isRecur:true, recurFreq:"daily"
+- "每周一三五X" → isRecur:true, recurFreq:"weekly", recurWeekdays 用 [0=周日..6=周六]
+- 没有明确时长时按经验合理估算 dur（分钟）
+- 相对日期（今天/明天/下周一等）要换算成具体 YYYY-MM-DD
+
+分类规则：
+- 听课/抄作业/刷题/听讲座 → C
+- 只有"学习+具体内容"才归 S
+- 论文/实验/文献/导师/组会/paper/research → R
+- 游泳/健身/跑步/阅读/冥想/瑜伽/散步/锻炼 → G
+- 其它（吃饭/通勤/会议/上课/作业等）→ C
+
+优先级判定：
+1) 重要词：论文/作业/报告/考试/答辩/项目/实验/文献/提交/交/due/deadline/ddl
+2) 紧急条件：date 是今天/明天 或 deadline ≤ 3 天 或 含 今天/明天/马上/立刻/紧急/尽快/截止
+3) 组合：重要+紧急→urgent-important / 重要→important / 紧急→urgent-unimportant / 都不→默认 important
+
+summary 是给用户看的简洁中文确认信息。`;
 
   try {
     const _nlCfg = getAiConfig();
@@ -5694,7 +5734,7 @@ B) 新任务格式：
         apiKey: _nlCfg.apiKey,
         baseURL: _nlCfg.baseURL || '',
         model: _nlCfg.model,
-        max_tokens: 2048,
+        max_tokens: 4096,
         messages: [
           { role: 'system', content: sysPrompt },
           { role: 'user', content: userText }
@@ -5702,36 +5742,33 @@ B) 新任务格式：
       })
     });
     loading.remove();
-    if (!resp.ok) { toast('API 调用失败'); return; }
+    if (!resp.ok) { toast('API 调用失败，已用本地解析'); handleTextInputLocal(userText); return; }
     const data = await resp.json();
     const txt = data.choices?.[0]?.message?.content || '';
     const m = txt.match(/\{[\s\S]*\}/);
-    if (!m) { toast('AI 返回格式异常'); return; }
-    const obj = JSON.parse(m[0]);
+    if (!m) { toast('AI 返回格式异常，已用本地解析'); handleTextInputLocal(userText); return; }
+    let obj;
+    try { obj = JSON.parse(m[0]); }
+    catch(_) { toast('AI 返回格式异常，已用本地解析'); handleTextInputLocal(userText); return; }
 
     if (obj.type === 'operation' && Array.isArray(obj.actions)) {
       const applied = applyOperations(obj.actions, obj.summary || '已执行操作');
       if (applied === 0) toast('未识别到可执行的操作');
-    } else if (obj.type === 'task') {
-      // AI 判定是新任务：优先用 AI 提取的 desc（已收敛为单个任务），避免本地分句拆分
-      const sourceText = (typeof obj.desc === 'string' && obj.desc.trim()) ? obj.desc.trim() : userText;
-      const parsed = parseTaskText(sourceText);
-      if (parsed.length > 0 && parsed[0].type !== 'recur') {
-        // 即便本地再次分句也只取第一个，强制"一次输入只一个任务"
-        const single = parsed[0];
-        state.tasks.push(makeTask(single));
-        saveState();
-        render();
-        toast(obj.summary || '已添加任务');
-      } else {
-        toast(obj.summary || '已添加任务');
+    } else if (obj.type === 'tasks' || obj.type === 'task') {
+      // 兼容 type:"tasks"+tasks[] 与老格式 type:"task"+desc
+      let tasks = Array.isArray(obj.tasks) ? obj.tasks : [];
+      if (tasks.length === 0 && typeof obj.desc === 'string' && obj.desc.trim()) {
+        tasks = [{ desc: obj.desc.trim() }];
       }
+      if (tasks.length === 0) { toast('未识别到任务'); return; }
+      showImportGroupedModal(tasks, obj.summary);
     } else {
       toast('AI 未识别意图');
     }
   } catch(e) {
     loading.remove();
-    toast('操作失败：' + e.message);
+    toast('AI 处理失败，已用本地解析');
+    handleTextInputLocal(userText);
   }
 }
 
