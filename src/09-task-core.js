@@ -119,6 +119,8 @@ function startTimer(taskId) {
   }
   saveState();
   render();
+  // 开始/继续计时 → 弹出（或刷新）全屏专注计时浮层
+  if (typeof openFocusOverlay === 'function') openFocusOverlay(taskId);
 }
 function pauseTimer(taskId) {
   const t = findTask(taskId);
