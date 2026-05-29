@@ -627,6 +627,8 @@ h3 {
   gap: 4px;
   margin: -16px 0 16px 2px;   /* 紧贴上方 input-bar，向上吸附 */
 }
+/* 输入框隐藏时（如「已完成」页），标签不再向上吸附，留出正常间距 */
+.input-mode-tabs.detached { margin-top: 4px; }
 .input-mode-tab {
   background: transparent;
   border: none;

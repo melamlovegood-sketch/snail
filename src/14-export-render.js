@@ -157,6 +157,8 @@ function downloadICS(content, filename) {
 
 /* ---------------- 主渲染 ---------------- */
 function render() {
+  // 渲染前用归档重建「今日已完成」镜像，保证各设备显示一致（划线）
+  try { reconcileDoneFromArchive(); } catch(_) {}
   renderHeader();
   if (currentTab === 'plans') renderPlans();
   else if (currentTab === 'today') renderToday();
