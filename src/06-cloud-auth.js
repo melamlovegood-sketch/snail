@@ -425,6 +425,7 @@ async function enterCloudMode(user) {
   syncStatus = 'syncing'; updateSyncIndicator();
   await checkMigration();
   await syncFromCloud();
+  await syncAiProfilesFromCloud();
   await bootRealtime();
   render();
   fetchIcalToken();
@@ -445,6 +446,59 @@ async function fetchIcalToken() {
     }
   } catch (e) {
     console.warn('[ical] fetchIcalToken failed:', e);
+  }
+}
+
+/* ---- AI 配置云同步（存于 profiles.ai_profiles，含 API Key 全量同步） ---- */
+function scheduleAiCloudSync() {
+  if (authStatus !== 'cloud') return;
+  if (!navigator.onLine) return;
+  clearTimeout(aiSyncDebounceTimer);
+  aiSyncDebounceTimer = setTimeout(pushAiProfilesToCloud, 600);
+}
+
+async function pushAiProfilesToCloud() {
+  if (authStatus !== 'cloud' || !sb || !cloudUser) return;
+  if (!navigator.onLine) return;
+  try {
+    const data = loadAiProfiles();
+    const { error } = await sb
+      .from('profiles')
+      .upsert({ id: cloudUser.id, ai_profiles: data }, { onConflict: 'id' });
+    if (error) console.warn('[Cloud] push ai_profiles failed:', error);
+  } catch(e) {
+    console.warn('[Cloud] push ai_profiles failed:', e);
+  }
+}
+
+// 登录后拉取云端 AI 配置，与本地按 profile id 合并（云端覆盖同 id）。
+async function syncAiProfilesFromCloud() {
+  if (authStatus !== 'cloud' || !sb || !cloudUser) return;
+  try {
+    const { data, error } = await sb
+      .from('profiles')
+      .select('ai_profiles')
+      .eq('id', cloudUser.id)
+      .single();
+    if (error) { console.warn('[Cloud] pull ai_profiles failed:', error); return; }
+    const cloud = data && data.ai_profiles;
+    if (!cloud || !Array.isArray(cloud.profiles) || cloud.profiles.length === 0) {
+      // 云端尚无 AI 配置：把本地的推上去（首次开启同步）
+      if (loadAiProfiles().profiles.length > 0) await pushAiProfilesToCloud();
+      return;
+    }
+    const local = loadAiProfiles();
+    const byId = {};
+    local.profiles.forEach(p => { byId[p.id] = p; });
+    cloud.profiles.forEach(p => { if (p && p.id) byId[p.id] = p; }); // 云端覆盖同 id
+    const merged = Object.values(byId);
+    let active = cloud.active && merged.some(p => p.id === cloud.active) ? cloud.active
+               : (local.active && merged.some(p => p.id === local.active) ? local.active
+               : (merged[0] && merged[0].id) || '');
+    saveAiProfiles({ active, profiles: merged });  // saveAiProfiles 会再推回云端，保证两端一致
+    if (currentTab === 'settings') renderSettings();
+  } catch(e) {
+    console.warn('[Cloud] pull ai_profiles failed:', e);
   }
 }
 
