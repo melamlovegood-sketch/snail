@@ -193,6 +193,22 @@ async function syncFromCloud() {
   updateSyncIndicator();
 }
 
+// 云端把 cloudT 合并进本地 local，但云端不保存“进行中的计时”
+// （timerStart/timerPaused/timerState 在 rowToTask 里恒为 null/idle）。
+// 若本地正在计时或暂停，保留本地计时字段，避免刷新/实时同步把计时清零。
+function applyCloudToLocal(local, cloudT) {
+  if (local.timerState === 'running' || local.timerState === 'paused') {
+    const tStart = local.timerStart, tPaused = local.timerPaused, tState = local.timerState;
+    Object.assign(local, cloudT);
+    local.timerStart = tStart;
+    local.timerPaused = tPaused;
+    local.timerState = tState;
+    local.durActual = null; // 进行中的任务不应被云端写入 durActual
+  } else {
+    Object.assign(local, cloudT);
+  }
+}
+
 function mergeCloudTasks(rows) {
   const localById = {};
   state.tasks.forEach(t => { localById[t.id] = { arr: 'tasks', task: t }; });
@@ -208,7 +224,7 @@ function mergeCloudTasks(rows) {
       const cloudUpd = new Date(row.updated_at || 0).getTime();
       const localUpd = new Date(local._updatedAt || 0).getTime();
       if (cloudUpd > localUpd) {
-        Object.assign(local, cloudT);
+        applyCloudToLocal(local, cloudT);
       }
     }
   });
@@ -340,7 +356,7 @@ function handleRealtimeChange(payload) {
       const cloudT = rowToTask(row);
       state.archive = state.archive.filter(t => t.id !== row.id);
       const existing = findTask(row.id);
-      if (existing) Object.assign(existing, cloudT);
+      if (existing) applyCloudToLocal(existing, cloudT);
       else state.tasks.push(cloudT);
     }
     saveState({ skipCloudSync: true });
