@@ -44,6 +44,7 @@ function getAiConfig() {
 const DEFAULT_STATE = {
   tasks: [],
   done: [],
+  archive: [],          // 所有已完成任务的永久归档（跨日保留，同步云端）；done 仅当日 UX
   recurTemplates: [],
   recurDoneLog: {},
   favorites: [],

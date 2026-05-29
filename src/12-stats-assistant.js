@@ -77,7 +77,8 @@ function renderStats() {
 
 function getRangeTasks(view) {
   const today = todayStr();
-  const all = [...state.tasks, ...state.done];
+  // 历史统计用 archive（永久归档，含今日已完成），而非跨日清空的 done
+  const all = [...state.tasks, ...(state.archive || [])];
   if (view === 'day') {
     return all.filter(t => t.date === today);
   }
@@ -106,7 +107,7 @@ function destroyAllCharts() {
 function computeCatTotals(tasks) {
   const totals = { S: 0, R: 0, G: 0, C: 0 };
   tasks.forEach(t => {
-    const isDone = state.done.some(d => d.id === t.id);
+    const isDone = (state.archive || []).some(d => d.id === t.id);
     const v = isDone ? (t.durActual ?? t.durPlan) : t.durPlan;
     if (totals[t.cat] !== undefined) totals[t.cat] += (v || 0);
   });
@@ -122,12 +123,12 @@ function buildMonthSeries() {
   for (let i = 1; i <= daysInMonth; i++) {
     labels.push(i);
     const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
-    const dayTasks = [...state.tasks, ...state.done].filter(t => t.date === ds);
+    const dayTasks = [...state.tasks, ...(state.archive || [])].filter(t => t.date === ds);
     ['S','R','G','C'].forEach(c => {
       const sum = dayTasks
         .filter(t => t.cat === c)
         .reduce((s,t) => {
-          const isDone = state.done.some(dd => dd.id === t.id);
+          const isDone = (state.archive || []).some(dd => dd.id === t.id);
           return s + ((isDone ? (t.durActual ?? t.durPlan) : t.durPlan) || 0);
         }, 0);
       series[c].push(sum);
@@ -143,7 +144,7 @@ function renderStatChart() {
 
   const content = document.getElementById('stats-content');
   const tasks = getRangeTasks(statView);
-  const completed = tasks.filter(t => state.done.some(d => d.id === t.id));
+  const completed = tasks.filter(t => (state.archive || []).some(d => d.id === t.id));
   const totalTasks = tasks.length;
   const completedCount = completed.length;
   const rate = totalTasks > 0 ? Math.round(completedCount / totalTasks * 100) : 0;
@@ -278,7 +279,7 @@ async function aiSummary(view) {
   const tasks = getRangeTasks(view);
   if (tasks.length === 0) { toast('这个时间段还没有任务'); return; }
 
-  const completed = tasks.filter(t => state.done.some(d => d.id === t.id));
+  const completed = tasks.filter(t => (state.archive || []).some(d => d.id === t.id));
   const data = {
     range: view,
     today: todayStr(),
@@ -291,7 +292,7 @@ async function aiSummary(view) {
       date: t.date,
       durPlan: t.durPlan,
       durActual: t.durActual,
-      done: state.done.some(d => d.id === t.id),
+      done: (state.archive || []).some(d => d.id === t.id),
       isRecur: t.isRecur,
       rollover: t.rollover
     })),
@@ -681,7 +682,7 @@ async function sendChatMessage(text) {
     renderChatMessages();
     // 刷新工具栏的消息计数
     const tb = document.querySelector('.chat-toolbar .meta');
-    if (tb) tb.textContent = `已加载 ${state.tasks.length} 个待办 · ${state.done.length} 已完成 · ${chatHistory.length} 条对话`;
+    if (tb) tb.textContent = `已加载 ${state.tasks.length} 个待办 · ${(state.archive || []).length} 已完成 · ${chatHistory.length} 条对话`;
   }
 }
 

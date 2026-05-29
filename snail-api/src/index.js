@@ -209,8 +209,9 @@ async function handleIcal(token, url, env) {
 
   const userId = users[0].id;
 
+  // 仅未删除、未完成（dur_actual is null）的任务进日历；已完成归档不应出现在日程订阅中
   const tasksResp = await sbFetch(env,
-    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date`
+    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&dur_actual=is.null&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date`
   );
   if (!tasksResp.ok) return new Response('Server error', { status: 500 });
   const tasks = await tasksResp.json();

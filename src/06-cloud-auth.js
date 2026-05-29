@@ -114,13 +114,21 @@ async function pushAllToCloud() {
   syncStatus = 'syncing'; updateSyncIndicator();
 
   try {
-    // 只同步活跃任务和模板。state.done 是当日 UX，跨日重置，不进云端。
+    // 活跃任务 + 已完成归档都同步。state.done 仅当日 UX，跨日重置，归档由 state.archive 承载。
     const rows = state.tasks
       .filter(t => isUuid(t.id))
       .map(taskToRow);
     if (rows.length > 0) {
       const { error } = await sb.from('tasks').upsert(rows, { onConflict: 'id' });
       if (error) throw error;
+    }
+    // 归档任务（dur_actual 已写入；deleted_at 不在 taskToRow 中，upsert 不会动它，保持 null）
+    const archiveRows = (state.archive || [])
+      .filter(t => isUuid(t.id))
+      .map(taskToRow);
+    if (archiveRows.length > 0) {
+      const { error: eArc } = await sb.from('tasks').upsert(archiveRows, { onConflict: 'id' });
+      if (eArc) console.warn('[Cloud] archive upsert:', eArc);
     }
     // 循环模板
     const tplRows = state.recurTemplates
@@ -150,12 +158,22 @@ async function syncFromCloud() {
   if (authStatus !== 'cloud' || !sb || !cloudUser) return;
   syncStatus = 'syncing'; updateSyncIndicator();
   try {
+    // 活跃任务：未删除且未完成（dur_actual is null）
     const { data: rows, error } = await sb
       .from('tasks')
       .select('*')
       .eq('user_id', cloudUser.id)
-      .is('deleted_at', null);
+      .is('deleted_at', null)
+      .is('dur_actual', null);
     if (error) throw error;
+
+    // 已完成归档：未删除且 dur_actual 已写入
+    const { data: archiveRows } = await sb
+      .from('tasks')
+      .select('*')
+      .eq('user_id', cloudUser.id)
+      .is('deleted_at', null)
+      .not('dur_actual', 'is', null);
 
     const { data: tplRows } = await sb
       .from('recur_templates')
@@ -163,6 +181,7 @@ async function syncFromCloud() {
       .eq('user_id', cloudUser.id);
 
     mergeCloudTasks(rows || []);
+    mergeCloudArchive(archiveRows || []);
     mergeCloudTemplates(tplRows || []);
     saveState({ skipCloudSync: true });
     render();
@@ -196,6 +215,26 @@ function mergeCloudTasks(rows) {
   // 云端已删除的任务（不在 rows 里）保留在本地，不强行删除，避免误删用户当前正在编辑的任务
 }
 
+function mergeCloudArchive(rows) {
+  if (!state.archive) state.archive = [];
+  const localById = {};
+  state.archive.forEach(t => { localById[t.id] = t; });
+  rows.forEach(row => {
+    const cloudT = rowToTask(row);       // dur_actual 已写入 → timerState:'done'
+    const local = localById[row.id];
+    if (!local) {
+      state.archive.push(cloudT);
+      localById[cloudT.id] = cloudT;
+    } else {
+      const cloudUpd = new Date(row.updated_at || 0).getTime();
+      const localUpd = new Date(local._updatedAt || 0).getTime();
+      if (cloudUpd > localUpd) Object.assign(local, cloudT);
+    }
+    // 已完成任务不应再留在活跃列表
+    state.tasks = state.tasks.filter(t => t.id !== row.id);
+  });
+}
+
 function mergeCloudTemplates(rows) {
   const localIds = new Set(state.recurTemplates.map(t => t.id));
   const deletedIds = new Set(state.deletedRecurIds || []);
@@ -206,6 +245,33 @@ function mergeCloudTemplates(rows) {
       state.recurTemplates.push(rowToTpl(row));
     }
   });
+}
+
+/* ---- 完成单个任务 → 云端归档（带 dur_actual，deleted_at 保持 null） ---- */
+async function cloudArchiveTask(t) {
+  if (authStatus !== 'cloud' || !sb || !cloudUser) return;
+  if (!isUuid(t.id)) return;
+  if (!navigator.onLine) { syncStatus = 'offline'; updateSyncIndicator(); return; }
+  try {
+    await sb.from('tasks').upsert(taskToRow(t), { onConflict: 'id' });
+  } catch(e) {
+    console.warn('[Cloud] archive task failed:', e);
+  }
+}
+
+/* ---- 取消完成 → 云端恢复为活跃任务（清除 dur_actual 与 deleted_at） ---- */
+async function cloudUnarchiveTask(t) {
+  if (authStatus !== 'cloud' || !sb || !cloudUser) return;
+  if (!isUuid(t.id)) return;
+  if (!navigator.onLine) { syncStatus = 'offline'; updateSyncIndicator(); return; }
+  try {
+    await sb.from('tasks').upsert(
+      { ...taskToRow(t), dur_actual: null, deleted_at: null },
+      { onConflict: 'id' }
+    );
+  } catch(e) {
+    console.warn('[Cloud] unarchive task failed:', e);
+  }
 }
 
 /* ---- 软删除单个任务到云端 ---- */
@@ -256,11 +322,23 @@ function handleRealtimeChange(payload) {
   if (ev === 'INSERT' || ev === 'UPDATE') {
     const row = payload.new;
     if (!row) return;
+    if (!state.archive) state.archive = [];
     if (row.deleted_at) {
+      // 已删除：从所有列表移除
       state.tasks = state.tasks.filter(t => t.id !== row.id);
       state.done = state.done.filter(t => t.id !== row.id);
-    } else {
+      state.archive = state.archive.filter(t => t.id !== row.id);
+    } else if (row.dur_actual != null) {
+      // 已完成：归档，并移出活跃列表
       const cloudT = rowToTask(row);
+      state.tasks = state.tasks.filter(t => t.id !== row.id);
+      const ai = state.archive.findIndex(t => t.id === row.id);
+      if (ai >= 0) Object.assign(state.archive[ai], cloudT);
+      else state.archive.push(cloudT);
+    } else {
+      // 活跃任务：从归档移回、upsert 到活跃列表
+      const cloudT = rowToTask(row);
+      state.archive = state.archive.filter(t => t.id !== row.id);
       const existing = findTask(row.id);
       if (existing) Object.assign(existing, cloudT);
       else state.tasks.push(cloudT);
@@ -272,6 +350,7 @@ function handleRealtimeChange(payload) {
     if (id) {
       state.tasks = state.tasks.filter(t => t.id !== id);
       state.done = state.done.filter(t => t.id !== id);
+      if (state.archive) state.archive = state.archive.filter(t => t.id !== id);
       saveState({ skipCloudSync: true });
       render();
     }
@@ -384,7 +463,8 @@ async function checkMigration() {
       .from('tasks')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', cloudUser.id)
-      .is('deleted_at', null);
+      .is('deleted_at', null)
+      .is('dur_actual', null);
     if ((count || 0) === 0) {
       // 云端为空，问用户是否上传本地数据
       const yes = confirm(`检测到本地有 ${localActive} 个任务，是否上传到云端开启同步？\n\n选「确定」上传\n选「取消」清空本地，使用云端（空）数据`);

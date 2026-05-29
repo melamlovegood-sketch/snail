@@ -79,6 +79,7 @@ function loadState() {
     const merged = { ...JSON.parse(JSON.stringify(DEFAULT_STATE)), ...s };
     if (Array.isArray(merged.tasks)) merged.tasks.forEach(t => normalizeTaskTimer(t, false));
     if (Array.isArray(merged.done)) merged.done.forEach(t => normalizeTaskTimer(t, true));
+    if (Array.isArray(merged.archive)) merged.archive.forEach(t => normalizeTaskTimer(t, true));
     return merged;
   } catch(e) {
     console.error('[Chronos] chronos_state 解析失败，已备份到 chronos_state_corrupted_*', e);

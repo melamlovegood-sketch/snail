@@ -90,6 +90,21 @@ function findTask(id) {
   return state.tasks.find(t => t.id === id) || state.done.find(t => t.id === id);
 }
 
+/* ---------------- 已完成任务永久归档 ---------------- */
+// 归档存的是任务克隆：之后取消完成 / 编辑活跃副本不会污染归档历史。
+function archiveTask(t) {
+  if (!state.archive) state.archive = [];
+  const clone = JSON.parse(JSON.stringify(t));
+  clone.timerState = 'done';
+  const i = state.archive.findIndex(x => x.id === clone.id);
+  if (i >= 0) state.archive[i] = clone;
+  else state.archive.push(clone);
+}
+function removeFromArchive(id) {
+  if (!state.archive) { state.archive = []; return; }
+  state.archive = state.archive.filter(x => x.id !== id);
+}
+
 /* ---------------- 计时器 ---------------- */
 function startTimer(taskId) {
   const t = findTask(taskId);
@@ -194,8 +209,10 @@ function _doToggleComplete(taskId) {
     }
     state.tasks.splice(idx, 1);
     state.done.push(t);
-    // 完成的任务在云端软删除（next 同步周期 done 不再上推）
-    cloudSoftDelete(t.id);
+    // 永久归档（跨日保留 + 同步云端）；存克隆，避免之后取消完成时改到归档副本
+    archiveTask(t);
+    // 完成的任务推送到云端归档：带 dur_actual 标记已完成，deleted_at 保持 null（不再软删除）
+    cloudArchiveTask(t);
     // 仅当任务属于今日时计入里程
     if (t.date === todayStr()) {
       awardMileageOnComplete(t);
@@ -213,11 +230,14 @@ function _doToggleComplete(taskId) {
     if (idx >= 0) {
       const t = state.done[idx];
       t.timerState = 'idle';
+      t.durActual = null;              // 取消完成 → 不再算作已完成（dur_actual 是云端「已完成」信号）
       if (t.recurId) {
         delete state.recurDoneLog[`${t.recurId}_${t.date}`];
       }
       state.done.splice(idx, 1);
+      removeFromArchive(t.id);         // 移出永久归档
       state.tasks.push(t);
+      cloudUnarchiveTask(t);           // 云端恢复为活跃任务（清除 dur_actual / deleted_at）
       if (t.date === todayStr()) recomputeDailyRate();
     }
   }
@@ -231,8 +251,9 @@ function _doToggleComplete(taskId) {
 function deleteTask(taskId) {
   state.tasks = state.tasks.filter(t => t.id !== taskId);
   state.done = state.done.filter(t => t.id !== taskId);
+  state.archive = state.archive.filter(t => t.id !== taskId);
   saveState();
-  cloudSoftDelete(taskId);
+  cloudSoftDelete(taskId);   // deleted_at != null → 同时排除出活跃集与归档集
   render();
 }
 

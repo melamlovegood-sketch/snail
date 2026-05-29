@@ -138,8 +138,8 @@ async function checkMorningPlan() {
   const recent7 = [];
   for (let i = 1; i <= 7; i++) {
     const d = dateAdd(today_d, -i);
-    const dayTasks = [...state.tasks, ...state.done].filter(t => t.date === d || t.originalDate === d);
-    const doneCount = dayTasks.filter(t => state.done.some(x => x.id === t.id)).length;
+    const dayTasks = [...state.tasks, ...(state.archive || [])].filter(t => t.date === d || t.originalDate === d);
+    const doneCount = dayTasks.filter(t => (state.archive || []).some(x => x.id === t.id)).length;
     recent7.push({ date: d, total: dayTasks.length, done: doneCount });
   }
 
