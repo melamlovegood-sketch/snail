@@ -67,7 +67,28 @@ let activePopover = null;
 let timerInterval = null;
 let statView = 'day'; // day | week | month
 let chartInstances = {};
-let chatHistory = []; // [{role:'user'|'assistant', content:'...'}] —— 内存中，不持久化
+const CHAT_HISTORY_KEY = 'chronos_chat_history';
+const CHAT_HISTORY_LIMIT = 200; // 最多保留最近 N 条消息
+
+function loadChatHistory() {
+  try {
+    const raw = localStorage.getItem(CHAT_HISTORY_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch(_) { return []; }
+}
+
+function saveChatHistory() {
+  try {
+    const trimmed = chatHistory.slice(-CHAT_HISTORY_LIMIT);
+    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(trimmed));
+  } catch(_) {}
+  // 触发云同步（debounce）
+  try { if (typeof scheduleChatHistoryCloudSync === 'function') scheduleChatHistoryCloudSync(); } catch(_) {}
+}
+
+let chatHistory = loadChatHistory(); // 本地持久化，跨刷新保留
 let chatLoading = false;
 let morningPlan = null;   // { advice, order, noKey?, loading? } —— 当日内存态
 let lastOperation = null; // { snapshot, summary, ts } —— 上次自然语言操作的撤销快照
@@ -86,6 +107,7 @@ let authStatus = 'unauth';     // 'unauth' | 'guest' | 'cloud'
 let syncStatus = 'idle';       // 'idle' | 'synced' | 'syncing' | 'error' | 'offline'
 let syncDebounceTimer = null;
 let aiSyncDebounceTimer = null;  // AI 配置云同步去抖
+let chatSyncDebounceTimer = null; // 对话历史云同步去抖
 let realtimeChannel = null;
 
 /* ---------------- 工具函数 ---------------- */
