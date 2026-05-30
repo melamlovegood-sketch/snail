@@ -47,6 +47,14 @@ function dailyTick() {
     }, 800);
   }
 
+  // 跨设备已完成信号：archive 会同步到云端，是「该循环任务某天已完成」的真相源。
+  // 另一台设备完成后，本机据此跳过注入，避免已完成的循环任务被重新注入（复活）。
+  const archivedRecurKeys = new Set(
+    (state.archive || [])
+      .filter(t => t.recurId)
+      .map(t => `${t.recurId}_${t.date}`)
+  );
+
   // 注入循环任务到未来 8 天
   for (let i = 0; i < 8; i++) {
     const targetDate = dateAdd(today, i);
@@ -56,8 +64,10 @@ function dailyTick() {
       // 是否已存在该实例
       const exists = state.tasks.some(t => t.recurId === tpl.id && t.date === targetDate);
       const doneKey = `${tpl.id}_${targetDate}`;
-      if (exists || state.recurDoneLog[doneKey]) return;
+      if (exists || state.recurDoneLog[doneKey] || archivedRecurKeys.has(doneKey)) return;
       state.tasks.push(makeTask({
+        // 确定性 id：多设备对同一模板+同一天生成一致 id，便于去重与跨设备完成同步
+        id: uidFromSeed(doneKey),
         desc: tpl.desc,
         cat: tpl.cat,
         priority: tpl.priority || 'normal',
@@ -86,7 +96,7 @@ function dailyTick() {
 /* ---------------- 任务工厂 ---------------- */
 function makeTask(opts) {
   return {
-    id: uid(),
+    id: opts.id || uid(),
     desc: opts.desc || '',
     cat: opts.cat || 'C',
     priority: opts.priority || 'normal',

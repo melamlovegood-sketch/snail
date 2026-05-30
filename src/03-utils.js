@@ -7,6 +7,30 @@ function uid() {
   });
 }
 function isUuid(s) { return typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s); }
+// 基于种子的确定性 UUID（RFC-4122 v4 形状）：同一 seed 在任何设备都生成相同 id。
+// 用于循环任务实例——让多设备对「同一模板 + 同一天」生成一致的 id，从而去重、
+// 并让一台设备完成后另一台能按 id 正确归档/移除，避免已完成的循环任务重复出现。
+function uidFromSeed(seed) {
+  const s = String(seed);
+  const bytes = new Array(16).fill(0);
+  for (let i = 0; i < s.length; i++) {
+    const idx = i % 16;
+    let h = bytes[idx] ^ ((s.charCodeAt(i) + (i + 1) * 0x9e3779b1) & 0xffffffff);
+    h ^= h << 13; h ^= h >>> 7; h ^= h << 17;   // xorshift 扰动，降低碰撞
+    bytes[idx] = h & 0xff;
+  }
+  for (let round = 0; round < 2; round++) {      // 二次混合，缓解短种子分布不均
+    for (let i = 0; i < 16; i++) {
+      let h = bytes[i] ^ ((bytes[(i + 7) % 16] * 31 + i) & 0xffffffff);
+      h ^= h << 5; h ^= h >>> 3;
+      bytes[i] = h & 0xff;
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;           // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;           // variant 10xx
+  const hex = bytes.map(b => b.toString(16).padStart(2, '0'));
+  return `${hex.slice(0,4).join('')}-${hex.slice(4,6).join('')}-${hex.slice(6,8).join('')}-${hex.slice(8,10).join('')}-${hex.slice(10,16).join('')}`;
+}
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
