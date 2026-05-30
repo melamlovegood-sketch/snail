@@ -62,6 +62,17 @@ function normalizeTaskTimer(t, isDoneArr) {
   }
   if (t.timerStart === undefined) t.timerStart = null;
   if (t.timerPaused === undefined) t.timerPaused = 0;
+  // 计时段补齐：老版本数据无 segments，按旧 timer 字段合成，保证跨设备同步与日历显示有真相源
+  if (!Array.isArray(t.segments)) {
+    if (t.timerState === 'running' && t.timerStart) {
+      t.segments = [{ s: t.timerStart, e: null }];
+    } else if (t.timerState === 'paused' && t.timerPaused > 0) {
+      const now = Date.now();
+      t.segments = [{ s: now - t.timerPaused, e: now }];  // 保留时长，墙钟近似
+    } else {
+      t.segments = [];  // 其它（含历史 done）无实际段 → 日历退回规划时间
+    }
+  }
 }
 function loadState() {
   let raw;

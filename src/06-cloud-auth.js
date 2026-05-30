@@ -25,6 +25,7 @@ function taskToRow(t) {
     start_time: t.startTime || null,
     dur_plan: t.durPlan || 60,
     dur_actual: t.durActual ?? null,
+    segments: Array.isArray(t.segments) ? t.segments : [],
     notes: t.notes || '',
     favorited: !!t.favoriteId,
     recur_id: (t.recurId && isUuid(t.recurId)) ? t.recurId : null,
@@ -46,9 +47,10 @@ function rowToTask(row) {
     deadline: row.deadline || null,
     durPlan: row.dur_plan || 60,
     durActual: row.dur_actual ?? null,
+    segments: Array.isArray(row.segments) ? row.segments : [],
     timerStart: null,
     timerPaused: 0,
-    timerState: row.dur_actual != null ? 'done' : 'idle',
+    timerState: deriveTimerState({ durActual: row.dur_actual ?? null, segments: Array.isArray(row.segments) ? row.segments : [] }),
     rollover: false,
     recurId: row.recur_id || null,
     isRecur: !!row.is_recur,
@@ -193,20 +195,11 @@ async function syncFromCloud() {
   updateSyncIndicator();
 }
 
-// 云端把 cloudT 合并进本地 local，但云端不保存“进行中的计时”
-// （timerStart/timerPaused/timerState 在 rowToTask 里恒为 null/idle）。
-// 若本地正在计时或暂停，保留本地计时字段，避免刷新/实时同步把计时清零。
+// 计时状态（segments）现在是跨设备同步的真相源：云端较新时整体覆盖本地。
+// 冲突由 mergeCloudTasks 的 cloudUpd>localUpd 决定；本地计时动作已 stampLocalEdit，
+// 其 _updatedAt 比自己旧的云端回声更新，不会被覆盖，因而能正确做 last-write-wins。
 function applyCloudToLocal(local, cloudT) {
-  if (local.timerState === 'running' || local.timerState === 'paused') {
-    const tStart = local.timerStart, tPaused = local.timerPaused, tState = local.timerState;
-    Object.assign(local, cloudT);
-    local.timerStart = tStart;
-    local.timerPaused = tPaused;
-    local.timerState = tState;
-    local.durActual = null; // 进行中的任务不应被云端写入 durActual
-  } else {
-    Object.assign(local, cloudT);
-  }
+  Object.assign(local, cloudT);
 }
 
 function mergeCloudTasks(rows) {
@@ -356,8 +349,14 @@ function handleRealtimeChange(payload) {
       const cloudT = rowToTask(row);
       state.archive = state.archive.filter(t => t.id !== row.id);
       const existing = findTask(row.id);
-      if (existing) applyCloudToLocal(existing, cloudT);
-      else state.tasks.push(cloudT);
+      if (existing) {
+        // 仅当云端行更新时才覆盖，避免旧的实时回声清掉本地刚操作的计时（last-write-wins）
+        const cloudUpd = new Date(row.updated_at || 0).getTime();
+        const localUpd = new Date(existing._updatedAt || 0).getTime();
+        if (cloudUpd >= localUpd) applyCloudToLocal(existing, cloudT);
+      } else {
+        state.tasks.push(cloudT);
+      }
     }
     saveState({ skipCloudSync: true });
     render();
