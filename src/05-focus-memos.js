@@ -93,14 +93,17 @@ function saveMemos() {
 function addMemo(content) {
   content = (content || '').trim();
   if (!content) return;
+  const now = Date.now();
   memos.push({
     id: uid(),
     content,
-    createdAt: Date.now(),
+    createdAt: now,
     pinned: false,
-    archived: false
+    archived: false,
+    updatedAt: now
   });
   saveMemos();
+  scheduleCloudSync();
   memoCollapsed = false;
   render();
   toast('已记一笔');
@@ -109,14 +112,18 @@ function togglePinMemo(id) {
   const m = memos.find(x => x.id === id);
   if (!m) return;
   m.pinned = !m.pinned;
+  m.updatedAt = Date.now();
   saveMemos();
+  scheduleCloudSync();
   render();
 }
 function archiveMemo(id) {
   const m = memos.find(x => x.id === id);
   if (!m) return;
   m.archived = true;
+  m.updatedAt = Date.now();
   saveMemos();
+  scheduleCloudSync();
   render();
   toast('已归档');
 }

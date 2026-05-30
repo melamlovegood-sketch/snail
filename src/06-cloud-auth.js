@@ -92,6 +92,28 @@ function rowToTpl(row) {
     createdAt: row.created_at ? row.created_at.slice(0,10) : todayStr()
   };
 }
+function memoToRow(m) {
+  return {
+    id: isUuid(m.id) ? m.id : uid(),
+    user_id: cloudUser ? cloudUser.id : null,
+    content: m.content || '',
+    pinned: !!m.pinned,
+    archived: !!m.archived,
+    created_at_ms: m.createdAt || Date.now(),
+    updated_at: new Date(m.updatedAt || m.createdAt || Date.now()).toISOString()
+  };
+}
+function rowToMemo(row) {
+  const createdAt = Number(row.created_at_ms) || Date.now();
+  return {
+    id: row.id,
+    content: row.content || '',
+    createdAt,
+    pinned: !!row.pinned,
+    archived: !!row.archived,
+    updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : createdAt
+  };
+}
 
 /* ---- 同步状态指示器 ---- */
 function updateSyncIndicator() {
@@ -140,6 +162,8 @@ async function pushAllToCloud() {
       const { error: e2 } = await sb.from('recur_templates').upsert(tplRows, { onConflict: 'id' });
       if (e2) console.warn('[Cloud] tpl upsert:', e2);
     }
+    // 快速备忘（记一笔）
+    await pushMemosToCloud();
     syncStatus = 'synced';
   } catch(e) {
     console.warn('[Cloud] push failed:', e);
@@ -182,9 +206,20 @@ async function syncFromCloud() {
       .select('*')
       .eq('user_id', cloudUser.id);
 
+    const { data: memoRows } = await sb
+      .from('memos')
+      .select('*')
+      .eq('user_id', cloudUser.id);
+
     mergeCloudTasks(rows || []);
     mergeCloudArchive(archiveRows || []);
     mergeCloudTemplates(tplRows || []);
+    mergeCloudMemos(memoRows || []);
+    // 本地存在、云端尚无的备忘 → 立即推回，保证两端一致（首次开启同步）
+    const cloudMemoIds = new Set((memoRows || []).map(r => r.id));
+    if (memos.some(m => isUuid(m.id) && !cloudMemoIds.has(m.id))) {
+      await pushMemosToCloud();
+    }
     saveState({ skipCloudSync: true });
     render();
     syncStatus = 'synced';
@@ -256,6 +291,46 @@ function mergeCloudTemplates(rows) {
   });
 }
 
+/* ---- 快速备忘：推送本地 memos 到云端 ---- */
+async function pushMemosToCloud() {
+  if (authStatus !== 'cloud' || !sb || !cloudUser) return;
+  if (!navigator.onLine) return;
+  try {
+    const rows = memos.filter(m => isUuid(m.id)).map(memoToRow);
+    if (rows.length > 0) {
+      const { error } = await sb.from('memos').upsert(rows, { onConflict: 'id' });
+      if (error) console.warn('[Cloud] memos upsert:', error);
+    }
+  } catch(e) {
+    console.warn('[Cloud] push memos failed:', e);
+  }
+}
+
+/* ---- 快速备忘：合并云端 memos 到本地（按 updatedAt 取较新者） ---- */
+function mergeCloudMemos(rows) {
+  const localById = {};
+  memos.forEach(m => { localById[m.id] = m; });
+  let changed = false;
+  rows.forEach(row => {
+    const cloudM = rowToMemo(row);
+    const local = localById[cloudM.id];
+    if (!local) {
+      memos.push(cloudM);
+      localById[cloudM.id] = cloudM;
+      changed = true;
+    } else {
+      const cloudUpd = cloudM.updatedAt || cloudM.createdAt || 0;
+      const localUpd = local.updatedAt || local.createdAt || 0;
+      if (cloudUpd > localUpd) {
+        Object.assign(local, cloudM);
+        changed = true;
+      }
+    }
+  });
+  if (changed) saveMemos();
+  return changed;
+}
+
 /* ---- 完成单个任务 → 云端归档（带 dur_actual，deleted_at 保持 null） ---- */
 async function cloudArchiveTask(t) {
   if (authStatus !== 'cloud' || !sb || !cloudUser) return;
@@ -317,6 +392,10 @@ async function bootRealtime() {
       event: '*', schema: 'public', table: 'tasks',
       filter: `user_id=eq.${cloudUser.id}`
     }, handleRealtimeChange)
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'memos',
+      filter: `user_id=eq.${cloudUser.id}`
+    }, handleMemoRealtimeChange)
     .subscribe();
 }
 async function teardownRealtime() {
@@ -367,6 +446,24 @@ function handleRealtimeChange(payload) {
       state.done = state.done.filter(t => t.id !== id);
       if (state.archive) state.archive = state.archive.filter(t => t.id !== id);
       saveState({ skipCloudSync: true });
+      render();
+    }
+  }
+}
+
+/* ---- 快速备忘的 Realtime 变更 ---- */
+function handleMemoRealtimeChange(payload) {
+  if (!payload) return;
+  const ev = payload.eventType;
+  if (ev === 'INSERT' || ev === 'UPDATE') {
+    const row = payload.new;
+    if (!row) return;
+    if (mergeCloudMemos([row])) render();
+  } else if (ev === 'DELETE') {
+    const id = payload.old && payload.old.id;
+    if (id && memos.some(m => m.id === id)) {
+      memos = memos.filter(m => m.id !== id);
+      saveMemos();
       render();
     }
   }
