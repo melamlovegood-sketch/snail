@@ -82,9 +82,16 @@ function formatTime6(timeStr) {
   return timeStr.replace(/:/g, '').slice(0, 6).padEnd(6, '0');
 }
 
-function addOneHour(t6) {
-  const h = (parseInt(t6.slice(0, 2), 10) + 1) % 24;
-  return String(h).padStart(2, '0') + t6.slice(2);
+function addMinutes(t6, minutes) {
+  // "HHMMSS" + N 分钟 → "HHMMSS"；按当天封顶，避免跨日溢出
+  const startSec = parseInt(t6.slice(0, 2), 10) * 3600
+    + parseInt(t6.slice(2, 4), 10) * 60
+    + parseInt(t6.slice(4, 6), 10);
+  const endSec = Math.min(startSec + Math.round(minutes) * 60, 24 * 3600 - 60);
+  const h = Math.floor(endSec / 3600);
+  const m = Math.floor((endSec % 3600) / 60);
+  const s = endSec % 60;
+  return String(h).padStart(2, '0') + String(m).padStart(2, '0') + String(s).padStart(2, '0');
 }
 
 const VTIMEZONE_SHANGHAI = [
@@ -107,7 +114,8 @@ function buildIcs(tasks, r1 = 15, r2 = 0, calName = 'Snail 任务') {
     if (t.start_time && t.task_date) {
       dateStr = t.task_date.replace(/-/g, '');
       startT = formatTime6(t.start_time);
-      endT = addOneHour(startT);
+      const durMin = Number.isFinite(+t.dur_plan) && +t.dur_plan > 0 ? +t.dur_plan : 60;
+      endT = addMinutes(startT, durMin);
     } else if (t.deadline) {
       dateStr = t.deadline.replace(/-/g, '');
       startT = '080000';
@@ -218,7 +226,7 @@ async function handleIcal(token, url, env) {
   // 仅未删除、未完成（dur_actual is null）的任务进日历；已完成归档不应出现在日程订阅中
   const catFilter = cat ? `&cat=eq.${cat}` : '';
   const tasksResp = await sbFetch(env,
-    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&dur_actual=is.null${catFilter}&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date`
+    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&dur_actual=is.null${catFilter}&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date,dur_plan`
   );
   if (!tasksResp.ok) return new Response('Server error', { status: 500 });
   const tasks = await tasksResp.json();
