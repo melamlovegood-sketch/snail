@@ -475,15 +475,19 @@ function renderAssistant() {
       <div class="conv-menu" style="margin-left:auto">
         <button class="btn-secondary conv-history-btn" id="conv-history-btn" style="padding:6px 12px; min-height:32px; font-size:12px" title="历史对话">
           🕘 <span class="conv-title">${escapeHtml(deriveConvTitle(getActiveConversation()))}</span>
-          <span class="conv-count">${chatConversations.length}</span> ▾
+          <span class="conv-count">${contentConversations().length}</span> ▾
         </button>
         <button class="btn-secondary" id="chat-clear" style="padding:6px 12px; min-height:32px; font-size:12px">＋ 新对话</button>
       </div>
     </div>
     <div class="chat-scroll" id="chat-scroll"></div>
-    <div class="chat-input-bar">
-      <textarea id="chat-input" placeholder="${checkInMode ? '说说你今天的感受…' : '问点什么…例：今天还有什么没完成？'}" rows="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
-      <button class="btn-primary" id="chat-send" style="min-height:48px">发送</button>
+    <div class="chat-composer">
+      <div id="chat-img-chip" class="chat-img-chip hidden"></div>
+      <div class="chat-input-bar">
+        <button class="btn-icon" id="chat-img-btn" title="添加图片" style="min-height:48px">🖼</button>
+        <textarea id="chat-input" placeholder="${checkInMode ? '说说你今天的感受…' : '问点什么…例：今天还有什么没完成？'}" rows="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+        <button class="btn-primary" id="chat-send" style="min-height:48px">发送</button>
+      </div>
     </div>
   `;
 
@@ -510,6 +514,9 @@ function renderAssistant() {
 
   sendBtn.onclick = doSend;
 
+  main.querySelector('#chat-img-btn').onclick = () => document.getElementById('chat-img-input').click();
+  renderChatImageChip();
+
   main.querySelector('#conv-history-btn').onclick = (e) => { e.stopPropagation(); toggleConvDropdown(); };
   main.querySelector('#chat-clear').onclick = () => newConversation();
 
@@ -518,11 +525,56 @@ function renderAssistant() {
 
   function doSend() {
     const text = input.value.trim();
-    if (!text || chatLoading) return;
+    if ((!text && !pendingChatImage) || chatLoading) return;
+    const img = pendingChatImage;
     input.value = '';
     input.style.height = 'auto';
-    sendChatMessage(text);
+    pendingChatImage = null;
+    renderChatImageChip();
+    sendChatMessage(text, img);
   }
+}
+
+/* ---------------- AI 对话：图片附件 ---------------- */
+// 暂存待发送的图片（不立即发送，等用户补文字后一起发）
+let pendingChatImage = null; // { dataUrl, mediaType, name }
+
+async function stageChatImage(file) {
+  if (!file || !file.type || !file.type.startsWith('image/')) {
+    toast('请上传图片文件');
+    return;
+  }
+  const apiKey = getApiKey();
+  if (!apiKey) { toast('请先在设置中填入 API Key'); return; }
+  try {
+    const dataUrl = await fileToDataUrl(file);
+    pendingChatImage = { dataUrl, mediaType: file.type, name: file.name || '图片' };
+  } catch(e) {
+    toast('读取图片失败');
+    return;
+  }
+  renderChatImageChip();
+  const input = document.getElementById('chat-input');
+  if (input) input.focus();
+}
+
+// 渲染/清除输入框上方的图片小卡片（不整页重渲染，避免丢失已输入文字）
+function renderChatImageChip() {
+  const chip = document.getElementById('chat-img-chip');
+  if (!chip) return;
+  if (!pendingChatImage) {
+    chip.classList.add('hidden');
+    chip.innerHTML = '';
+    return;
+  }
+  chip.classList.remove('hidden');
+  chip.innerHTML = `
+    <img class="chat-img-chip-thumb" src="${pendingChatImage.dataUrl}" alt="图片">
+    <span class="chat-img-chip-name">🖼 ${escapeHtml(pendingChatImage.name)}</span>
+    <button class="btn-icon chat-img-chip-x" id="chat-img-remove" title="移除图片">✕</button>
+  `;
+  const rm = chip.querySelector('#chat-img-remove');
+  if (rm) rm.onclick = () => { pendingChatImage = null; renderChatImageChip(); };
 }
 
 /* ---------------- 多对话管理 ---------------- */
@@ -531,7 +583,7 @@ function refreshConvToolbar() {
   const titleEl = document.querySelector('#conv-history-btn .conv-title');
   if (titleEl) titleEl.textContent = deriveConvTitle(getActiveConversation());
   const countEl = document.querySelector('#conv-history-btn .conv-count');
-  if (countEl) countEl.textContent = chatConversations.length;
+  if (countEl) countEl.textContent = contentConversations().length;
 }
 
 // 对话时间显示：今天显示时:分，昨天显示「昨天 时:分」，更早显示月日
@@ -617,7 +669,8 @@ function renderConvDropdown() {
   const menu = document.querySelector('.conv-menu');
   if (!menu) return;
 
-  const convs = chatConversations.slice().sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+  // 只列出有实际内容的对话；当前的空白草稿不进历史
+  const convs = contentConversations().sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
   const panel = document.createElement('div');
   panel.id = 'conv-dropdown';
   panel.className = 'conv-dropdown';
@@ -752,9 +805,14 @@ function renderChatMessages() {
   }
   box.innerHTML = chatHistory.map(m => {
     if (m.role !== 'assistant') {
+      // 历史里不存图片，只用一个 icon 占位表示「这条带过图」（兼容旧记录里的 m.image）
+      const imgHtml = m.image
+        ? `<img class="chat-msg-img" src="${m.image}" alt="图片">`
+        : (m.hasImage ? `<span class="chat-msg-imgicon"><span class="ico">🖼</span>图片</span>` : '');
+      const textHtml = m.content ? `<div class="chat-msg-text">${escapeHtml(m.content)}</div>` : '';
       return `
     <div class="chat-msg ${m.role}">
-      <div class="bubble">${escapeHtml(m.content)}</div>
+      <div class="bubble">${imgHtml}${textHtml}</div>
     </div>`;
     }
     const think = m.reasoning ? `<details class="think">
@@ -848,27 +906,43 @@ function handleAssistantAddTaskTags(reply) {
   return { cleanText, addedCount };
 }
 
-async function sendChatMessage(text) {
+async function sendChatMessage(text, image) {
   const apiKey = getApiKey();
+  const userMsg = { role: 'user', content: text || '' };
+  // 图片本身不存进对话记录（免费空间有限），只存一个标记，历史里用 icon 代替
+  if (image && image.dataUrl) userMsg.hasImage = true;
   if (!apiKey) {
-    chatHistory.push({ role: 'user', content: text });
+    chatHistory.push(userMsg);
     chatHistory.push({ role: 'assistant', content: '请先在设置中填入 API Key。' });
     renderChatMessages();
     return;
   }
   if (chatLoading) return;
 
-  chatHistory.push({ role: 'user', content: text });
+  chatHistory.push(userMsg);
   chatLoading = true;
   renderChatMessages();
 
   try {
+    // 图片只在「当前这条」消息里随请求发出（历史不保存图片，故无法回带）。
+    // 思考过程（reasoning）不进入上下文。
+    const liveImageUrl = (image && image.dataUrl) ? image.dataUrl : null;
+    const toApiMsg = m => {
+      const dataUrl = (m === userMsg) ? liveImageUrl : (m.image || null);
+      if (dataUrl) {
+        const parts = [{ type: 'image_url', image_url: { url: dataUrl } }];
+        if (m.content) parts.push({ type: 'text', text: m.content });
+        return { role: m.role, content: parts };
+      }
+      return { role: m.role, content: m.content };
+    };
     const messages = [
       { role: 'system', content: buildAssistantSystemPrompt() },
-      // 只回传 role+content，思考过程（reasoning）不进入上下文
-      ...chatHistory.map(m => ({ role: m.role, content: m.content }))
+      ...chatHistory.map(toApiMsg)
     ];
     const _chatCfg = getAiConfig();
+    // 仅当本次发送带图片时用视觉模型（历史里的图片已不在上下文中）
+    const _chatModel = liveImageUrl ? (_chatCfg.visionModel || _chatCfg.model) : _chatCfg.model;
     const resp = await fetch(QWEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -876,7 +950,7 @@ async function sendChatMessage(text) {
         provider: _chatCfg.provider,
         apiKey: _chatCfg.apiKey,
         baseURL: _chatCfg.baseURL || '',
-        model: _chatCfg.model,
+        model: _chatModel,
         max_tokens: 1024,
         messages
       })

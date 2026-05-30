@@ -137,18 +137,35 @@ function deriveConvTitle(conv) {
     const t = firstUser.content.trim().replace(/\s+/g, ' ');
     return t.length > 20 ? t.slice(0, 20) + '…' : t;
   }
+  // 没有文字、但发过图片的对话
+  if ((conv && conv.messages || []).some(m => m.role === 'user' && (m.image || m.hasImage))) return '图片对话';
   return '新对话';
+}
+
+// 对话是否有实际内容（任意一条消息含文字或图片）。空对话不入库、不进历史列表。
+function convHasContent(conv) {
+  return !!(conv && Array.isArray(conv.messages) && conv.messages.some(m =>
+    m && ((typeof m.content === 'string' && m.content.trim()) || m.image || m.hasImage)
+  ));
+}
+
+// 只含有实际内容的对话（用于历史列表与计数；当前的空白草稿对话不计入）
+function contentConversations() {
+  return (chatConversations || []).filter(convHasContent);
 }
 
 // 持久化整个多对话存储到 localStorage
 function persistChatConversations() {
   try {
+    // 丢弃没有任何内容的空对话；保留当前激活的草稿对话（仅在内存中，不落盘），
+    // 这样新建的「新对话」不会污染历史列表，也不会被存到本地/云端。
+    chatConversations = chatConversations.filter(c => convHasContent(c) || c.id === activeConvId);
     if (chatConversations.length > CHAT_CONV_LIMIT) {
       chatConversations.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
       chatConversations = chatConversations.slice(0, CHAT_CONV_LIMIT);
     }
     localStorage.setItem(CHAT_CONVERSATIONS_KEY, JSON.stringify({
-      conversations: chatConversations,
+      conversations: chatConversations.filter(convHasContent), // 空草稿不入库
       activeId: activeConvId,
       deletedIds: (chatDeletedConvIds || []).slice(-200)
     }));

@@ -184,7 +184,13 @@ document.querySelectorAll('.tabbar .tab').forEach(b => {
 /* ---------------- 文件输入 ---------------- */
 document.getElementById('img-input').addEventListener('change', e => {
   if (e.target.files[0]) {
-    handleImageUpload(e.target.files[0]);
+    stageParseImage(e.target.files[0]);
+    e.target.value = '';
+  }
+});
+document.getElementById('chat-img-input').addEventListener('change', e => {
+  if (e.target.files[0]) {
+    stageChatImage(e.target.files[0]);
     e.target.value = '';
   }
 });
@@ -231,7 +237,7 @@ document.getElementById('json-input').addEventListener('change', e => {
       toast('请上传图片文件');
       return;
     }
-    handleImageUpload(file);
+    stageParseImage(file);
   }
 
   window.addEventListener('dragenter', e => {
