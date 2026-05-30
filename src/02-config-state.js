@@ -207,6 +207,10 @@ let focusHintSeen = false; // 是否已展示过首次引导（一次性）
 let doneCollapsed = {};   // 各分组已完成任务折叠状态 { [groupKey]: true/false }
 let aiEditingId = null;   // AI 配置当前正在编辑的 profile id；null 表示「新增配置」
 
+/* ============== 应用版本 ============== */
+// 设置页「关于」展示此版本号。约定：每次创建新 PR 时递增此值，并同步 package.json 的 version（见 CLAUDE.md）。
+const APP_VERSION = '1.1.0';
+
 /* ============== Supabase 云同步 ============== */
 const SUPABASE_URL = 'https://ckwcobbuserktcjrmgly.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNrd2NvYmJ1c2Vya3RjanJtZ2x5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4Nzg5NDMsImV4cCI6MjA5NTQ1NDk0M30.WgN1IPGWX6R8-pA0Mp7kbMb7lRqVbZ3LrdWl6va-Grk';

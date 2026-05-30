@@ -1,0 +1,3 @@
+# Cloudflare Wrangler 本地缓存
+.wrangler/
+snail-api/.wrangler/
