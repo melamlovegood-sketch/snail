@@ -426,6 +426,7 @@ async function enterCloudMode(user) {
   await syncFromCloud();
   await syncAiProfilesFromCloud();
   await syncChatHistoryFromCloud();
+  await syncSnailProgressFromCloud();
   await bootRealtime();
   render();
   fetchIcalToken();
@@ -643,6 +644,113 @@ async function syncChatHistoryFromCloud() {
     }
   } catch(e) {
     console.warn('[Cloud] pull chat_history failed:', e);
+  }
+}
+
+/* ---- 蜗牛旅程云同步（里程 + 成就，存于 profiles.snail_progress） ---- */
+function scheduleSnailProgressCloudSync() {
+  if (authStatus !== 'cloud') return;
+  if (!navigator.onLine) return;
+  clearTimeout(snailSyncDebounceTimer);
+  snailSyncDebounceTimer = setTimeout(pushSnailProgressToCloud, 800);
+}
+
+async function pushSnailProgressToCloud() {
+  if (authStatus !== 'cloud' || !sb || !cloudUser) return;
+  if (!navigator.onLine) return;
+  try {
+    const payload = {
+      version: 1,
+      mileage: { total: snailMileage.total, dailyLog: snailMileage.dailyLog || {} },
+      achievements: { unlocked: snailAchievements.unlocked || [] },
+      savedAt: new Date().toISOString()
+    };
+    const { error } = await sb
+      .from('profiles')
+      .upsert({ id: cloudUser.id, snail_progress: payload }, { onConflict: 'id' });
+    if (error) console.warn('[Cloud] push snail_progress failed:', error);
+  } catch(e) {
+    console.warn('[Cloud] push snail_progress failed:', e);
+  }
+}
+
+// 合并云端旅程数据到本地：
+//  - dailyLog 按日期合并，同日取 earned 较大者（里程在各设备本地累加，会分叉）
+//  - total 恒等于各日 earned 之和（awardMileageOnComplete 两者同步累加），合并后重算自愈
+//  - 成就按 id 取并集，保留最早 unlockedAt；并对达标但缺记录的里程碑静默补齐（不弹窗）
+// 返回是否产生了本地变更（含云端没有、需推回的内容）。
+function mergeSnailProgressFromCloud(cloud) {
+  if (!cloud || typeof cloud !== 'object') return false;
+  let changed = false;
+
+  const cloudMileage = cloud.mileage || {};
+  const cloudLog = (cloudMileage.dailyLog && typeof cloudMileage.dailyLog === 'object') ? cloudMileage.dailyLog : {};
+  Object.keys(cloudLog).forEach(date => {
+    const c = cloudLog[date];
+    if (!c || typeof c !== 'object') return;
+    const l = snailMileage.dailyLog[date];
+    if (!l || (Number(c.earned) || 0) > (Number(l.earned) || 0)) {
+      snailMileage.dailyLog[date] = c;
+      changed = true;
+    }
+  });
+
+  const recomputed = Object.keys(snailMileage.dailyLog)
+    .reduce((s, d) => s + (Number(snailMileage.dailyLog[d] && snailMileage.dailyLog[d].earned) || 0), 0);
+  if (recomputed !== snailMileage.total) {
+    snailMileage.total = recomputed;
+    changed = true;
+  }
+
+  const cloudAch = (cloud.achievements && Array.isArray(cloud.achievements.unlocked)) ? cloud.achievements.unlocked : [];
+  const byId = {};
+  (snailAchievements.unlocked || []).forEach(u => { if (u && u.id) byId[u.id] = u; });
+  cloudAch.forEach(u => {
+    if (!u || !u.id) return;
+    const existing = byId[u.id];
+    if (!existing) { byId[u.id] = u; changed = true; }
+    else if (u.unlockedAt && (!existing.unlockedAt || u.unlockedAt < existing.unlockedAt)) {
+      existing.unlockedAt = u.unlockedAt; changed = true;
+    }
+  });
+  snailAchievements.unlocked = Object.values(byId);
+
+  const today = todayStr();
+  SNAIL_MILESTONES.forEach(m => {
+    if (snailMileage.total >= m.km && !snailAchievements.unlocked.some(u => u.id === m.id)) {
+      snailAchievements.unlocked.push({ id: m.id, unlockedAt: today });
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
+// 登录后拉取云端旅程数据并与本地合并；云端为空则把本地推上去（首次开启同步）。
+async function syncSnailProgressFromCloud() {
+  if (authStatus !== 'cloud' || !sb || !cloudUser) return;
+  try {
+    const { data, error } = await sb
+      .from('profiles')
+      .select('snail_progress')
+      .eq('id', cloudUser.id)
+      .single();
+    if (error) { console.warn('[Cloud] pull snail_progress failed:', error); return; }
+    const cloud = data && data.snail_progress;
+    if (!cloud) {
+      if ((snailMileage.total || 0) > 0 || (snailAchievements.unlocked || []).length > 0) {
+        await pushSnailProgressToCloud();
+      }
+      return;
+    }
+    const changed = mergeSnailProgressFromCloud(cloud);
+    // 持久化合并结果到本地（saveSnail* 会再次安排一次推送去抖，无副作用）
+    saveSnailMileage(snailMileage);
+    saveSnailAchievements(snailAchievements);
+    // 合并产生了云端没有的内容（如某设备独有的里程）→ 立即推回，保证两端一致
+    if (changed) await pushSnailProgressToCloud();
+  } catch(e) {
+    console.warn('[Cloud] pull snail_progress failed:', e);
   }
 }
 

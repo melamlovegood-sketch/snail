@@ -18,6 +18,7 @@ function loadSnailMileage() {
 }
 function saveSnailMileage(m) {
   try { localStorage.setItem('snail_mileage', JSON.stringify(m)); } catch(_) {}
+  try { if (typeof scheduleSnailProgressCloudSync === 'function') scheduleSnailProgressCloudSync(); } catch(_) {}
 }
 let snailMileage = loadSnailMileage();
 let _prevSnailState = null;
@@ -283,6 +284,7 @@ function loadSnailAchievements() {
 }
 function saveSnailAchievements(a) {
   try { localStorage.setItem('snail_achievements', JSON.stringify(a)); } catch(_) {}
+  try { if (typeof scheduleSnailProgressCloudSync === 'function') scheduleSnailProgressCloudSync(); } catch(_) {}
 }
 let snailAchievements = loadSnailAchievements();
 
