@@ -260,6 +260,13 @@ function renderSettings() {
     <div class="settings-section">
       <div class="settings-row">
         <div>
+          <div class="label">版本</div>
+          <div class="desc">当前应用版本号</div>
+        </div>
+        <div class="text-soft" style="font-variant-numeric:tabular-nums">v${APP_VERSION}</div>
+      </div>
+      <div class="settings-row">
+        <div>
           <div class="label">重新查看新手引导</div>
           <div class="desc">从头了解 Snail 的核心功能</div>
         </div>
@@ -268,7 +275,7 @@ function renderSettings() {
     </div>
 
     <div class="text-xs text-faint" style="text-align:center; padding:24px 0 12px 0">
-      Snail · 个人时间管理
+      Snail · 个人时间管理 · v${APP_VERSION}
     </div>
   `;
 
