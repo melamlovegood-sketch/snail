@@ -54,13 +54,46 @@ function showDurationConfirmModal(parsed) {
 }
 
 /* ---------------- AI: 截图解析 ---------------- */
-async function handleImageUpload(file) {
+// 上传图片后先暂存（不立即发送），等用户补一句文字再一起解析
+let pendingParseImage = null; // { dataUrl, mediaType, name }
+
+// 选好图片：转 dataUrl 暂存，并刷新输入区显示「图片已上传」的卡片
+async function stageParseImage(file) {
+  if (!file || !file.type || !file.type.startsWith('image/')) {
+    toast('请上传图片文件');
+    return;
+  }
   const apiKey = getApiKey();
   if (!apiKey) { toast('请先在设置中填入 API Key'); return; }
+  try {
+    const dataUrl = await fileToDataUrl(file);
+    pendingParseImage = { dataUrl, mediaType: file.type, name: file.name || '截图' };
+  } catch(e) {
+    toast('读取图片失败');
+    return;
+  }
+  // 重渲染计划页以显示暂存卡片（renderPlans 会读取 pendingParseImage）
+  if (currentTab === 'plans') render();
+  else toast('图片已暂存，去「计划」页补充说明并解析');
+}
 
-  const dataUrl = await fileToDataUrl(file);
+function clearPendingParseImage() {
+  pendingParseImage = null;
+  if (currentTab === 'plans') render();
+}
+
+// 真正调用 AI 解析：使用已暂存的图片 + 用户补充的文字
+async function handleImageUpload(extraText) {
+  const apiKey = getApiKey();
+  if (!apiKey) { toast('请先在设置中填入 API Key'); return; }
+  if (!pendingParseImage) { toast('请先上传图片'); return; }
+
+  const dataUrl = pendingParseImage.dataUrl;
   const base64 = dataUrl.split(',')[1];
-  const mediaType = file.type;
+  const mediaType = pendingParseImage.mediaType;
+  const userNote = (extraText || '').trim();
+  pendingParseImage = null;
+  if (currentTab === 'plans') render();
 
   const loadingToast = showLoading('AI 正在解析图片');
 
@@ -124,7 +157,7 @@ async function handleImageUpload(file) {
             role: 'user',
             content: [
               { type: 'image_url', image_url: { url: `data:${mediaType};base64,${base64}` } },
-              { type: 'text', text: '请解析此截图中的所有事项和截止日期，包括周期性事件，按上述格式返回 JSON。' }
+              { type: 'text', text: '请解析此截图中的所有事项和截止日期，包括周期性事件，按上述格式返回 JSON。' + (userNote ? `\n\n用户补充说明（请结合理解）：${userNote}` : '') }
             ]
           }
         ]

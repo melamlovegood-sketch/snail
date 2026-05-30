@@ -674,8 +674,18 @@ function renderPlans() {
     ${renderMorningBanner()}
     ${renderProcrastinationBanner()}
     ${showInput ? `
+    ${inputMode === 'task' && pendingParseImage ? `
+    <div class="pending-img-card">
+      <img class="pending-img-thumb" src="${pendingParseImage.dataUrl}" alt="待解析图片">
+      <div class="pending-img-meta">
+        <div class="pending-img-name">🖼 ${escapeHtml(pendingParseImage.name)}</div>
+        <div class="pending-img-hint">图片已上传，可补充一句说明后点「解析」</div>
+      </div>
+      <button class="btn-primary pending-img-go" id="parse-img-btn">解析</button>
+      <button class="btn-icon pending-img-x" id="parse-img-clear" title="移除图片">✕</button>
+    </div>` : ''}
     <div class="input-bar">
-      <input id="task-input" placeholder="${inputMode === 'memo' ? '记一笔...（按 Enter 保存）' : '新任务或操作指令，例：把今天 C 类推到明天'}" autocomplete="off">
+      <input id="task-input" placeholder="${inputMode === 'memo' ? '记一笔...（按 Enter 保存）' : (pendingParseImage ? '给图片补一句说明（可选），回车解析' : '新任务或操作指令，例：把今天 C 类推到明天')}" autocomplete="off">
       ${inputMode === 'task' ? `
         <button class="btn-icon" id="img-btn" title="截图解析">⎙</button>
         <button class="btn-icon" id="fav-btn" title="收藏">★</button>
@@ -696,15 +706,24 @@ function renderPlans() {
       if (e.key === 'Enter') {
         if (inputMode === 'memo') {
           addMemo(input.value);
+          input.value = '';
+        } else if (inputMode === 'task' && pendingParseImage) {
+          // 有暂存图片时：回车 = 带上这句说明一起解析
+          handleImageUpload(input.value);
+          input.value = '';
         } else {
           handleTextInput(input.value);
+          input.value = '';
         }
-        input.value = '';
       }
     });
     if (inputMode === 'task') {
       main.querySelector('#img-btn').onclick = () => document.getElementById('img-input').click();
       main.querySelector('#fav-btn').onclick = showFavoritesQuickPick;
+      if (pendingParseImage) {
+        main.querySelector('#parse-img-btn').onclick = () => handleImageUpload(input.value);
+        main.querySelector('#parse-img-clear').onclick = () => clearPendingParseImage();
+      }
     }
   }
 

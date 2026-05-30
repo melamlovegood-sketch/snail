@@ -516,7 +516,8 @@ async function pushChatHistoryToCloud() {
   try {
     const payload = {
       version: 2,
-      conversations: chatConversations.map(c => ({
+      // 空对话不上云（节省免费存储空间）
+      conversations: chatConversations.filter(convHasContent).map(c => ({
         id: c.id,
         title: c.title || '',
         createdAt: c.createdAt || null,

@@ -1722,6 +1722,89 @@ textarea.api-input {
 }
 .chat-input-bar textarea:focus { border-color: var(--accent); }
 .chat-input-bar button { flex-shrink: 0; }
+
+/* 对话输入区：图片附件 */
+.chat-composer { display: flex; flex-direction: column; gap: 8px; }
+.chat-img-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.chat-img-chip.hidden { display: none; }
+.chat-img-chip-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.chat-img-chip-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-img-chip-x { flex-shrink: 0; }
+/* 用户气泡里的图片 */
+.chat-msg-img {
+  display: block;
+  max-width: 220px;
+  max-height: 280px;
+  border-radius: 10px;
+  margin-bottom: 6px;
+}
+.chat-msg-text:empty { display: none; }
+/* 历史消息里的图片占位 icon（实图不入库） */
+.chat-msg-imgicon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.06);
+  font-size: 13px;
+  color: var(--text-soft);
+}
+.chat-msg.user .chat-msg-imgicon { background: rgba(255,255,255,0.22); color: #fff; }
+.chat-msg-imgicon .ico { font-size: 15px; }
+
+/* 计划页：待解析的截图卡片 */
+.pending-img-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.pending-img-thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.pending-img-meta { flex: 1; min-width: 0; }
+.pending-img-name {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pending-img-hint { font-size: 12px; color: var(--text-soft); margin-top: 2px; }
+.pending-img-go { flex-shrink: 0; padding: 8px 14px; min-height: 36px; }
+.pending-img-x { flex-shrink: 0; }
 .chat-toolbar {
   display: flex;
   justify-content: space-between;
