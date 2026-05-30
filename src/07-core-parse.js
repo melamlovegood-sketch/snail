@@ -101,6 +101,7 @@ function makeTask(opts) {
     timerStart: null,
     timerPaused: 0,
     timerState: 'idle',
+    segments: [],                       // 计时段：[{s:epochMs, e:epochMs|null}]；e=null 表示该段进行中
     rollover: false,
     recurId: opts.recurId || null,
     isRecur: !!opts.isRecur,

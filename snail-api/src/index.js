@@ -82,6 +82,16 @@ function formatTime6(timeStr) {
   return timeStr.replace(/:/g, '').slice(0, 6).padEnd(6, '0');
 }
 
+function epochToShanghai(ms) {
+  // epoch 毫秒 → 上海本地（固定 +0800）的 { date:"YYYYMMDD", time:"HHMMSS" }
+  const d = new Date(ms + 8 * 3600 * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return {
+    date: `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}`,
+    time: `${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`,
+  };
+}
+
 function addMinutes(t6, minutes) {
   // "HHMMSS" + N 分钟 → "HHMMSS"；按当天封顶，避免跨日溢出
   const startSec = parseInt(t6.slice(0, 2), 10) * 3600
@@ -109,8 +119,30 @@ const VTIMEZONE_SHANGHAI = [
 function buildIcs(tasks, r1 = 15, r2 = 0, calName = 'Snail 任务') {
   const now = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z';
   const events = tasks.map(t => {
-    let dateStr, startT, endT;
+    const isDone = t.dur_actual != null;
 
+    // 有完整计时段（≥1 段，过滤 <1min 误点）→ 每段一个独立事件，落在真实墙钟，已发生不加提醒
+    const segs = (Array.isArray(t.segments) ? t.segments : [])
+      .filter(s => s && s.s && s.e && (s.e - s.s) >= 60000);
+    if (segs.length >= 1) {
+      return segs.map((s, i) => {
+        const a = epochToShanghai(s.s), b = epochToShanghai(s.e);
+        const label = segs.length > 1 ? ` (${i + 1}/${segs.length})` : '';
+        const summary = (isDone ? '✓ ' : '') + (t.task_desc || '') + label;
+        return [
+          'BEGIN:VEVENT',
+          `UID:${t.id}-seg${i}@snail`,
+          foldLine(`SUMMARY:${escapeIcs(summary)}`),
+          `DTSTART;TZID=Asia/Shanghai:${a.date}T${a.time}`,
+          `DTEND;TZID=Asia/Shanghai:${b.date}T${b.time}`,
+          `DTSTAMP:${now}`,
+          'END:VEVENT',
+        ].join('\r\n');
+      }).join('\r\n');
+    }
+
+    // 否则按规划时间显示
+    let dateStr, startT, endT;
     if (t.start_time && t.task_date) {
       dateStr = t.task_date.replace(/-/g, '');
       startT = formatTime6(t.start_time);
@@ -126,7 +158,6 @@ function buildIcs(tasks, r1 = 15, r2 = 0, calName = 'Snail 任务') {
 
     if (dateStr.length !== 8) return '';
 
-    const isDone = t.dur_actual != null;
     const taskReminderEnabled = t.reminder_enabled !== false && !isDone;
     const alarms = [];
     if (taskReminderEnabled) {
@@ -225,10 +256,11 @@ async function handleIcal(token, url, env) {
 
   const userId = users[0].id;
 
-  // 未删除的任务进日历（含已完成）；已完成事项以 ✓ 前缀标记，仍然显示在日程订阅中
+  // 未删除的任务进日历（含已完成与已计时）；已完成事项以 ✓ 前缀标记，仍然显示在日程订阅中
+  // 过滤纳入：有规划时间(start_time/deadline) 或 已完成(dur_actual) 的任务；已计时任务通常已满足前两者之一
   const catFilter = cat ? `&cat=eq.${cat}` : '';
   const tasksResp = await sbFetch(env,
-    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null${catFilter}&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date,dur_plan,dur_actual`
+    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null${catFilter}&or=(deadline.not.is.null,start_time.not.is.null,dur_actual.not.is.null)&select=id,task_desc,deadline,start_time,task_date,dur_plan,dur_actual,segments,reminder_enabled,reminder_override`
   );
   if (!tasksResp.ok) return new Response('Server error', { status: 500 });
   const tasks = await tasksResp.json();

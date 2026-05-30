@@ -128,16 +128,29 @@ function reconcileDoneFromArchive() {
 }
 
 /* ---------------- 计时器 ---------------- */
+// 计时以 segments（[{s,e}]）为唯一真相源：一段 = 一次「开始→暂停」，e=null 表示进行中。
+// timerState 由 segments + durActual 派生；timerStart/timerPaused 仅作旧数据兼容，不再驱动逻辑。
+function deriveTimerState(t) {
+  if (t.durActual != null) return 'done';
+  const segs = t.segments || [];
+  if (!segs.length) return 'idle';
+  return segs[segs.length - 1].e == null ? 'running' : 'paused';
+}
+function getTimerElapsed(t) {
+  const now = Date.now();
+  return (t.segments || []).reduce((sum, s) => sum + Math.max(0, (s.e ?? now) - s.s), 0);
+}
+// 计时动作本地戳一个比云端更新的时间，确保 last-write-wins 中刚操作过的本地任务不被旧的云端回声覆盖
+function stampLocalEdit(t) { t._updatedAt = new Date().toISOString(); }
+
 function startTimer(taskId) {
   const t = findTask(taskId);
   if (!t) return;
-  if (t.timerState === 'idle') {
-    t.timerStart = Date.now();
-    t.timerPaused = 0;
+  if (!Array.isArray(t.segments)) t.segments = [];
+  if (t.timerState === 'idle' || t.timerState === 'paused') {
+    t.segments.push({ s: Date.now(), e: null });
     t.timerState = 'running';
-  } else if (t.timerState === 'paused') {
-    t.timerStart = Date.now() - t.timerPaused;
-    t.timerState = 'running';
+    stampLocalEdit(t);
   }
   saveState();
   render();
@@ -147,35 +160,37 @@ function startTimer(taskId) {
 function pauseTimer(taskId) {
   const t = findTask(taskId);
   if (!t || t.timerState !== 'running') return;
-  t.timerPaused = Date.now() - t.timerStart;
+  const segs = t.segments || [];
+  const last = segs[segs.length - 1];
+  if (last && last.e == null) last.e = Date.now();
   t.timerState = 'paused';
+  stampLocalEdit(t);
   saveState();
   render();
 }
 function stopTimer(taskId) {
   const t = findTask(taskId);
   if (!t) return;
-  let elapsed = 0;
-  if (t.timerState === 'running') elapsed = Date.now() - t.timerStart;
-  else if (t.timerState === 'paused') elapsed = t.timerPaused;
-  // 不足 60s 视为误点（点开播放又秒停），重置回 idle，不污染 durActual
-  if (elapsed < 60000) {
+  if (!Array.isArray(t.segments)) t.segments = [];
+  const last = t.segments[t.segments.length - 1];
+  if (last && last.e == null) last.e = Date.now();  // 闭合进行中的段
+  const total = getTimerElapsed(t);
+  // 不足 60s 视为误点（点开播放又秒停），清空段、重置回 idle，不污染 durActual
+  if (total < 60000) {
+    t.segments = [];
     t.timerStart = null;
     t.timerPaused = 0;
     t.timerState = 'idle';
+    stampLocalEdit(t);
     saveState();
     render();
     return;
   }
-  t.durActual = Math.round(elapsed / 60000);
+  t.durActual = Math.round(total / 60000);
   t.timerState = 'done';
+  stampLocalEdit(t);
   saveState();
   render();
-}
-function getTimerElapsed(t) {
-  if (t.timerState === 'running') return Date.now() - t.timerStart;
-  if (t.timerState === 'paused') return t.timerPaused;
-  return 0;
 }
 function startTimerTick() {
   if (timerInterval) clearInterval(timerInterval);
@@ -214,15 +229,20 @@ function _doToggleComplete(taskId) {
   let idx = state.tasks.findIndex(t => t.id === taskId);
   if (idx >= 0) {
     const t = state.tasks[idx];
-    // 如果计时未停止，自动结束
+    // 如果计时未停止，自动结束：先闭合进行中的段
     if (t.timerState === 'running' || t.timerState === 'paused') {
-      let elapsed = t.timerState === 'running' ? Date.now() - t.timerStart : t.timerPaused;
+      if (Array.isArray(t.segments)) {
+        const last = t.segments[t.segments.length - 1];
+        if (last && last.e == null) last.e = Date.now();
+      }
+      const elapsed = getTimerElapsed(t);
       // 计时不足 60s 视为未真正使用计时器，按计划时长记录，避免出现 "1h30m → 1分钟" 这种异常显示
       t.durActual = elapsed >= 60000 ? Math.round(elapsed / 60000) : (t.durActual != null ? t.durActual : t.durPlan);
     } else if (t.durActual == null) {
       t.durActual = t.durPlan;
     }
     t.timerState = 'done';
+    stampLocalEdit(t);
     // 完成时清零拖延计数和 sortOrder
     t.rolloverCount = 0;
     t.rollover = false;
@@ -262,6 +282,8 @@ function _doToggleComplete(taskId) {
     if (t) {
       t.timerState = 'idle';
       t.durActual = null;              // 取消完成 → 不再算作已完成（dur_actual 是云端「已完成」信号）
+      t.segments = [];                 // 清空计时段，回到未计时状态
+      stampLocalEdit(t);
       delete t.completedAt;
       if (t.recurId) {
         delete state.recurDoneLog[`${t.recurId}_${t.date}`];
