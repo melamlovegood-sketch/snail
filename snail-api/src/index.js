@@ -126,7 +126,8 @@ function buildIcs(tasks, r1 = 15, r2 = 0, calName = 'Snail 任务') {
 
     if (dateStr.length !== 8) return '';
 
-    const taskReminderEnabled = t.reminder_enabled !== false;
+    const isDone = t.dur_actual != null;
+    const taskReminderEnabled = t.reminder_enabled !== false && !isDone;
     const alarms = [];
     if (taskReminderEnabled) {
       if (t.reminder_override != null) {
@@ -136,10 +137,11 @@ function buildIcs(tasks, r1 = 15, r2 = 0, calName = 'Snail 任务') {
         if (r2 > 0) alarms.push(buildValarm(r2));
       }
     }
+    const summary = (isDone ? '✓ ' : '') + (t.task_desc || '');
     const lines = [
       'BEGIN:VEVENT',
       `UID:${t.id}@snail`,
-      foldLine(`SUMMARY:${escapeIcs(t.task_desc)}`),
+      foldLine(`SUMMARY:${escapeIcs(summary)}`),
       `DTSTART;TZID=Asia/Shanghai:${dateStr}T${startT}`,
       `DTEND;TZID=Asia/Shanghai:${dateStr}T${endT}`,
       `DTSTAMP:${now}`,
@@ -223,10 +225,10 @@ async function handleIcal(token, url, env) {
 
   const userId = users[0].id;
 
-  // 仅未删除、未完成（dur_actual is null）的任务进日历；已完成归档不应出现在日程订阅中
+  // 未删除的任务进日历（含已完成）；已完成事项以 ✓ 前缀标记，仍然显示在日程订阅中
   const catFilter = cat ? `&cat=eq.${cat}` : '';
   const tasksResp = await sbFetch(env,
-    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null&dur_actual=is.null${catFilter}&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date,dur_plan`
+    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null${catFilter}&or=(deadline.not.is.null,start_time.not.is.null)&select=id,task_desc,deadline,start_time,task_date,dur_plan,dur_actual`
   );
   if (!tasksResp.ok) return new Response('Server error', { status: 500 });
   const tasks = await tasksResp.json();
