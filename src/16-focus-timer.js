@@ -146,6 +146,33 @@ function restoreFocusTimer() {
   updateFocusUI();
 }
 
+/* ---- 从持久化状态恢复侧边栏 ----
+ * focusTimerTaskId 等是内存态，页面刷新 / 另一台设备登录后会丢失，
+ * 但任务的计时状态（segments/timerState）是持久化并跨设备同步的。
+ * render() 末尾调用此函数：只要有任务在计时（running/paused）而当前没有激活
+ * 的浮层，就以最小化药丸（侧边栏）形式恢复显示，保证刷新 / 多设备都能看到。 */
+function syncFocusTimerWithState() {
+  if (typeof state === 'undefined' || !state || !Array.isArray(state.tasks)) return;
+  // 已有激活的专注计时（全屏或最小化）：任务若已结束 / 完成 / 删除则立即关闭，
+  // 否则交给 1s tick 维护，不重复处理（避免打扰用户当前的全屏视图）
+  if (focusTimerTaskId) {
+    const cur = findTask(focusTimerTaskId);
+    if (!cur || (cur.timerState !== 'running' && cur.timerState !== 'paused')) closeFocusOverlay();
+    return;
+  }
+  const active = state.tasks.find(t => t.timerState === 'running' || t.timerState === 'paused');
+  if (!active) return;
+  ensureFocusOverlayDOM();
+  focusTimerTaskId = active.id;
+  focusTimerMinimized = true;
+  const ov = document.getElementById('focus-overlay');
+  const mini = document.getElementById('focus-mini');
+  if (ov) ov.classList.add('hidden');
+  if (mini) mini.classList.remove('hidden');
+  updateFocusUI();
+  startFocusTick();
+}
+
 /* ---- 刷新 ---- */
 function startFocusTick() {
   if (focusTimerTick) clearInterval(focusTimerTick);

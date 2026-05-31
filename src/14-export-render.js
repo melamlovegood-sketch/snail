@@ -166,6 +166,8 @@ function render() {
   else if (currentTab === 'stats') renderStats();
   else if (currentTab === 'assistant') renderAssistant();
   else if (currentTab === 'settings') renderSettings();
+  // 刷新 / 多设备登录后，只要有任务在计时就恢复侧边栏药丸（自愈，幂等）
+  try { if (typeof syncFocusTimerWithState === 'function') syncFocusTimerWithState(); } catch(_) {}
 }
 
 /* ---------------- Tab 切换 ---------------- */
