@@ -339,6 +339,34 @@ function showTaskDetailModal(taskId) {
     return '自定义：' + formatReminderLabel(_remOverride);
   }
 
+  // 实际计时记录（仅在计时已结束、且有有效的首尾时间戳时可编辑）
+  // 计时以 segments（[{s,e}]）为真相源：调整首尾边界即可修正「忘记结束」导致的超长记录，中间暂停间隔保留不变。
+  const _segs = Array.isArray(t.segments) ? t.segments : [];
+  const _hasTiming = t.durActual != null && _segs.length &&
+    _segs[0].s != null && _segs[_segs.length - 1].e != null;
+  const _segFirst = _hasTiming ? _segs[0] : null;
+  const _segLast = _hasTiming ? _segs[_segs.length - 1] : null;
+  // 各段已计时长之和（ms），用于实时预览：改首尾边界后的总时长 = 基准 + 头部增量 + 尾部增量
+  const _segBase = _segs.reduce((sum, s) => sum + Math.max(0, (s.e ?? s.s) - s.s), 0);
+  const _previewMs = (sMs, eMs) => _segBase + (_segFirst.s - sMs) + (eMs - _segLast.e);
+  const timingBlock = _hasTiming ? `
+    <div class="form-group" style="background: var(--bg-soft); padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-soft);">
+      <div style="font-size: 12px; color: var(--text-soft); margin-bottom: 8px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;">⏱ 实际计时（可手动修正）</div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0">
+          <label>开始</label>
+          <input type="datetime-local" id="td-timer-start" value="${msToLocalInput(_segFirst.s)}">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>结束</label>
+          <input type="datetime-local" id="td-timer-end" value="${msToLocalInput(_segLast.e)}">
+        </div>
+      </div>
+      <div id="td-timer-dur" style="font-size:13px;color:var(--accent,#4f7cff);margin-top:8px"></div>
+      ${_segs.length > 1 ? `<div style="font-size:12px;color:var(--text-soft);margin-top:4px">该任务有 ${_segs.length} 段计时（中途暂停过），调整首尾时间会保留中间的暂停间隔。</div>` : ''}
+    </div>
+  ` : '';
+
   // 循环任务额外信息
   const tpl = t.isRecur && t.recurId ? state.recurTemplates.find(x => x.id === t.recurId) : null;
   const recurInfoBlock = tpl ? `
@@ -385,6 +413,8 @@ function showTaskDetailModal(taskId) {
         <input type="date" id="td-deadline" value="${t.deadline || ''}">
       </div>
     </div>
+
+    ${timingBlock}
 
     <div class="form-group">
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -475,12 +505,40 @@ function showTaskDetailModal(taskId) {
     });
   });
 
+  // 实际计时：实时预览修正后的时长
+  if (_hasTiming) {
+    const _tStart = modal.querySelector('#td-timer-start');
+    const _tEnd = modal.querySelector('#td-timer-end');
+    const _tDur = modal.querySelector('#td-timer-dur');
+    const _refreshTimerDur = () => {
+      const s = localInputToMs(_tStart.value), e = localInputToMs(_tEnd.value);
+      if (s == null || e == null || e <= s) { _tDur.textContent = '⚠️ 结束时间需晚于开始时间'; return; }
+      _tDur.textContent = '实际时长：' + fmtDur(Math.max(0, Math.round(_previewMs(s, e) / 60000)));
+    };
+    _tStart.addEventListener('change', _refreshTimerDur);
+    _tEnd.addEventListener('change', _refreshTimerDur);
+    _refreshTimerDur();
+  }
+
   const close = () => backdrop.remove();
   modal.querySelector('#td-cancel').onclick = close;
 
   modal.querySelector('#td-save').onclick = () => {
     const newDesc = modal.querySelector('#td-desc').value.trim();
     if (!newDesc) { toast('描述不能为空'); return; }
+
+    // 实际计时修正：校验首尾时间后改写首段开始、末段结束，并按 segments 重算 durActual
+    if (_hasTiming) {
+      const s = localInputToMs(modal.querySelector('#td-timer-start').value);
+      const e = localInputToMs(modal.querySelector('#td-timer-end').value);
+      if (s == null || e == null || e <= s) { toast('计时时间无效：结束需晚于开始'); return; }
+      // 多段计时时，首尾边界不能越过相邻的暂停记录，否则会出现负时长段
+      if (_segs.length > 1 && (s > _segFirst.e || e < _segLast.s)) { toast('计时时间与暂停记录冲突'); return; }
+      _segFirst.s = s;
+      _segLast.e = e;
+      t.durActual = Math.max(0, Math.round(getTimerElapsed(t) / 60000));
+      stampLocalEdit(t);
+    }
 
     const newDeadline = modal.querySelector('#td-deadline').value || null;
     if (newDeadline !== (t.deadline || null)) {

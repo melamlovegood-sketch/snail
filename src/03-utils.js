@@ -69,6 +69,17 @@ function fmtTimer(ms) {
   if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
   return `${m}:${String(sec).padStart(2,'0')}`;
 }
+// epoch ms ↔ <input type="datetime-local"> 值（YYYY-MM-DDTHH:MM，本地时区）
+function msToLocalInput(ms) {
+  const d = new Date(ms);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function localInputToMs(str) {
+  if (!str) return null;
+  const ms = new Date(str).getTime();   // "YYYY-MM-DDTHH:MM" 按本地时区解析
+  return Number.isNaN(ms) ? null : ms;
+}
 /**
  * 数据持久化策略（重要）：
  * - 唯一的 localStorage 键是 'chronos_state'，由 saveState/loadState 管理。
