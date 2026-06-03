@@ -1,6 +1,6 @@
 {
   "name": "snail",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "个人时间管理 PWA — 纯前端单页应用",
   "private": true,
   "scripts": {

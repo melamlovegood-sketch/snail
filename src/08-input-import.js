@@ -191,7 +191,7 @@ async function handleImageUpload(extraText) {
       toast('未识别到任务');
       return;
     }
-    showImportGroupedModal(tasks, parsed.summary);
+    showAIParseDetailModal(tasks, parsed.summary);
   } catch(e) {
     loadingToast.remove();
     toast('解析失败');
