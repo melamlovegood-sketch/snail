@@ -120,6 +120,7 @@ function buildIcs(tasks, r1 = 15, r2 = 0, calName = 'Snail 任务') {
   const now = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z';
   const events = tasks.map(t => {
     const isDone = t.dur_actual != null;
+    const descLine = t.notes ? foldLine(`DESCRIPTION:${escapeIcs(t.notes)}`) : null;
 
     // 有完整计时段（≥1 段，过滤 <1min 误点）→ 每段一个独立事件，落在真实墙钟，已发生不加提醒
     const segs = (Array.isArray(t.segments) ? t.segments : [])
@@ -136,6 +137,7 @@ function buildIcs(tasks, r1 = 15, r2 = 0, calName = 'Snail 任务') {
           `DTSTART;TZID=Asia/Shanghai:${a.date}T${a.time}`,
           `DTEND;TZID=Asia/Shanghai:${b.date}T${b.time}`,
           `DTSTAMP:${now}`,
+          ...(descLine ? [descLine] : []),
           'END:VEVENT',
         ].join('\r\n');
       }).join('\r\n');
@@ -176,6 +178,7 @@ function buildIcs(tasks, r1 = 15, r2 = 0, calName = 'Snail 任务') {
       `DTSTART;TZID=Asia/Shanghai:${dateStr}T${startT}`,
       `DTEND;TZID=Asia/Shanghai:${dateStr}T${endT}`,
       `DTSTAMP:${now}`,
+      ...(descLine ? [descLine] : []),
       ...alarms,
       'END:VEVENT',
     ];
@@ -260,7 +263,7 @@ async function handleIcal(token, url, env) {
   // 过滤纳入：有规划时间(start_time/deadline) 或 已完成(dur_actual) 的任务；已计时任务通常已满足前两者之一
   const catFilter = cat ? `&cat=eq.${cat}` : '';
   const tasksResp = await sbFetch(env,
-    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null${catFilter}&or=(deadline.not.is.null,start_time.not.is.null,dur_actual.not.is.null)&select=id,task_desc,deadline,start_time,task_date,dur_plan,dur_actual,segments,reminder_enabled,reminder_override`
+    `/rest/v1/tasks?user_id=eq.${userId}&deleted_at=is.null${catFilter}&or=(deadline.not.is.null,start_time.not.is.null,dur_actual.not.is.null)&select=id,task_desc,notes,deadline,start_time,task_date,dur_plan,dur_actual,segments,reminder_enabled,reminder_override`
   );
   if (!tasksResp.ok) return new Response('Server error', { status: 500 });
   const tasks = await tasksResp.json();
