@@ -758,9 +758,11 @@ async function pushSnailProgressToCloud() {
   if (!navigator.onLine) return;
   try {
     const payload = {
-      version: 1,
+      version: 2,
       mileage: { total: snailMileage.total, dailyLog: snailMileage.dailyLog || {} },
       achievements: { unlocked: snailAchievements.unlocked || [] },
+      // 连续登录天数（🔥）依赖 loginLog（每天活跃记录），随旅程数据一同跨设备同步
+      loginLog: state.loginLog || {},
       savedAt: new Date().toISOString()
     };
     const { error } = await sb
@@ -800,6 +802,18 @@ function mergeSnailProgressFromCloud(cloud) {
     changed = true;
   }
 
+  // loginLog 合并：按日期取并集（活跃日只增不减），驱动 🔥 连续登录天数。
+  // 兼容旧 v1 payload（无 loginLog）：跳过即可，本地 backfill 已自愈。
+  const cloudLogin = (cloud.loginLog && typeof cloud.loginLog === 'object') ? cloud.loginLog : {};
+  if (!state.loginLog || typeof state.loginLog !== 'object') state.loginLog = {};
+  Object.keys(cloudLogin).forEach(date => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    if (!state.loginLog[date]) {
+      state.loginLog[date] = cloudLogin[date] || 1;
+      changed = true;
+    }
+  });
+
   const cloudAch = (cloud.achievements && Array.isArray(cloud.achievements.unlocked)) ? cloud.achievements.unlocked : [];
   const byId = {};
   (snailAchievements.unlocked || []).forEach(u => { if (u && u.id) byId[u.id] = u; });
@@ -836,7 +850,9 @@ async function syncSnailProgressFromCloud() {
     if (error) { console.warn('[Cloud] pull snail_progress failed:', error); return; }
     const cloud = data && data.snail_progress;
     if (!cloud) {
-      if ((snailMileage.total || 0) > 0 || (snailAchievements.unlocked || []).length > 0) {
+      if ((snailMileage.total || 0) > 0
+          || (snailAchievements.unlocked || []).length > 0
+          || Object.keys(state.loginLog || {}).length > 0) {
         await pushSnailProgressToCloud();
       }
       return;
@@ -845,6 +861,8 @@ async function syncSnailProgressFromCloud() {
     // 持久化合并结果到本地（saveSnail* 会再次安排一次推送去抖，无副作用）
     saveSnailMileage(snailMileage);
     saveSnailAchievements(snailAchievements);
+    // loginLog 合并进了 state，需落盘；skipCloudSync 避免触发主表回环同步
+    saveState({ skipCloudSync: true });
     // 合并产生了云端没有的内容（如某设备独有的里程）→ 立即推回，保证两端一致
     if (changed) await pushSnailProgressToCloud();
   } catch(e) {

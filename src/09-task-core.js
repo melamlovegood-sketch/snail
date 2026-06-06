@@ -251,6 +251,8 @@ function _doToggleComplete(taskId) {
     if (t.recurId) {
       state.recurDoneLog[`${t.recurId}_${t.date}`] = { actual: t.durActual, ts: Date.now() };
     }
+    // 标记完成任务 → 当天算作「登录/活跃」，驱动 🔥 连续登录天数（跨设备同步）
+    markActiveToday();
     state.tasks.splice(idx, 1);
     state.done.push(t);
     // 永久归档（跨日保留 + 同步云端）；存克隆，避免之后取消完成时改到归档副本
@@ -981,9 +983,9 @@ function renderHeader() {
   document.getElementById('header-date').textContent = `${today.getFullYear()}年${today.getMonth()+1}月${today.getDate()}日 · 周${wd}`;
 
   const extra = document.getElementById('header-extra');
-  const streak = computeMaxStreak();
+  const streak = computeLoginStreak();
   const streakHTML = (currentTab === 'plans' || currentTab === 'today') && streak > 0
-    ? `<div class="streak-badge">🔥 ${streak}天</div>` : '';
+    ? `<div class="streak-badge" title="连续登录 ${streak} 天">🔥 ${streak}天</div>` : '';
   // 云同步指示器（仅在云模式下显示）
   const syncHTML = authStatus === 'cloud'
     ? `<button id="sync-dot" class="sync-dot ${syncStatus}" onclick="manualSync()" aria-label="同步状态"></button>`

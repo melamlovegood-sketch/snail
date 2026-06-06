@@ -148,9 +148,34 @@ function saveState(opts) {
   }
 }
 
+// 连续登录(🔥)：当天新建或完成任意任务即把今天记入 loginLog（每天只记一次）。
+// 仅在首次写入今天时安排一次云端推送（随蜗牛旅程 blob 跨设备同步）。
+function markActiveToday() {
+  const d = todayStr();
+  if (!state.loginLog) state.loginLog = {};
+  if (state.loginLog[d]) return;
+  state.loginLog[d] = Date.now();
+  try { if (typeof scheduleSnailProgressCloudSync === 'function') scheduleSnailProgressCloudSync(); } catch(_) {}
+}
+
+// 老用户迁移：loginLog 为空时，从历史完成记录回填活跃日期，避免 🔥 连续天数清零。
+function backfillLoginLog() {
+  if (!state.loginLog) state.loginLog = {};
+  if (Object.keys(state.loginLog).length > 0) return;
+  const mark = (d, ts) => {
+    if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    if (!state.loginLog[d]) state.loginLog[d] = ts || 1;
+  };
+  Object.keys(state.recurDoneLog || {}).forEach(k => {
+    mark(k.slice(k.lastIndexOf('_') + 1), state.recurDoneLog[k] && state.recurDoneLog[k].ts);
+  });
+  (state.archive || []).forEach(t => { if (t && t.durActual != null) mark(t.date, t.completedAt); });
+}
+
 // state 在此初始化：loadState() 定义于本文件、DEFAULT_STATE 定义于 02-config-state.js，
 // 此处两者都已就绪。（拆分为多个 <script> 后函数提升不跨文件，故不能在 02 中提前调用。）
 state = loadState();
+backfillLoginLog();
 
 // 多对话存储初始化（loadChatConversations / makeConversation 依赖此处已就绪的 uid()）
 ;(function initChatStore() {

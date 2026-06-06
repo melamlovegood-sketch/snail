@@ -49,6 +49,20 @@ function computeMaxStreak() {
   return max;
 }
 
+// 连续登录天数(🔥)：从今天往前数连续「活跃」的天数（活跃 = 当天新建/完成过任务）。
+// 今天还没活跃不算断（从昨天起算），与原打卡 streak 的宽限规则一致。
+function computeLoginStreak() {
+  const log = state.loginLog || {};
+  let cursor = todayStr();
+  if (!log[cursor]) cursor = dateAdd(cursor, -1);   // 今天未活跃 → 从昨天开始数，不算中断
+  let streak = 0;
+  for (let i = 0; i < 3650; i++) {
+    if (log[cursor]) { streak++; cursor = dateAdd(cursor, -1); }
+    else break;
+  }
+  return streak;
+}
+
 /* ---------------- 拖延预警 banner ---------------- */
 function getProcrastinatedTasks() {
   const threshold = state.rolloverWarnThreshold || 2;

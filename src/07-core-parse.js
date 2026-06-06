@@ -66,6 +66,7 @@ function dailyTick() {
       const doneKey = `${tpl.id}_${targetDate}`;
       if (exists || state.recurDoneLog[doneKey] || archivedRecurKeys.has(doneKey)) return;
       state.tasks.push(makeTask({
+        _system: true,   // 自动注入的循环任务实例，不计为用户当天活跃
         // 确定性 id：多设备对同一模板+同一天生成一致 id，便于去重与跨设备完成同步
         id: uidFromSeed(doneKey),
         desc: tpl.desc,
@@ -95,6 +96,9 @@ function dailyTick() {
 
 /* ---------------- 任务工厂 ---------------- */
 function makeTask(opts) {
+  // 用户新建任务 → 当天算作「登录/活跃」（驱动 🔥 连续登录天数）。
+  // opts._system=true 表示自动生成（如循环任务实例注入），不计为用户活跃。
+  if (!opts._system) { try { if (typeof markActiveToday === 'function') markActiveToday(); } catch(_) {} }
   return {
     id: opts.id || uid(),
     desc: opts.desc || '',
