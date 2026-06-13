@@ -608,6 +608,13 @@ function showTaskDetailModal(taskId) {
       }
     }
 
+    // 已完成任务的真相源是 state.archive（跨设备云同步 + iCal 订阅都只读它）。
+    // 但 findTask 对「当日完成」的任务优先返回 state.done 副本，上面的编辑（含实际计时
+    // 修正）落在该副本上：既不会被 pushAllToCloud 推送（它只推 tasks + archive），
+    // 又会在下次 render 的 reconcileDoneFromArchive 中被旧的归档值覆盖。
+    // 因此完成态任务必须把改动回写归档副本，才能同步到云端、其它设备与日历。
+    if (isCompleted(t.id)) archiveTask(t);
+
     saveState();
     close();
     render();
